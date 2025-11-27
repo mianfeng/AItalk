@@ -1,13 +1,34 @@
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import { FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
 import { createBlob, decode, decodeAudioData } from './audioUtils';
-import { ConnectionState, Message } from '../types';
+import { ConnectionState, Message, Feedback } from '../types';
 
 export interface LiveSessionConfig {
   onConnectionStateChange: (state: ConnectionState) => void;
   onTranscriptUpdate: (message: Message) => void;
   onAudioData: (amplitude: number) => void; // For visualizer
+  onFeedback: (feedback: Feedback) => void; // New callback for feedback tools
   systemInstruction: string;
 }
+
+// Tool definition for speech analysis
+const feedbackTool: FunctionDeclaration = {
+  name: 'giveFeedback',
+  description: 'Provide feedback on the user\'s grammar, pronunciation, or naturalness. Use this whenever the user speaks to offer a better version of what they said.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      original: { type: Type.STRING, description: "The user's original (inferred) text" },
+      better: { type: Type.STRING, description: "A more natural/native way to say it" },
+      analysis: { type: Type.STRING, description: "Brief explanation of why the change is better (in Chinese)" },
+      chunks: { 
+        type: Type.ARRAY, 
+        items: { type: Type.STRING },
+        description: "Extract 1-3 useful phrases/idioms from the improved version for the user to learn"
+      }
+    },
+    required: ['original', 'better', 'analysis', 'chunks']
+  }
+};
 
 export class LiveSession {
   private client: GoogleGenAI;
@@ -26,7 +47,6 @@ export class LiveSession {
 
   constructor(config: LiveSessionConfig) {
     this.config = config;
-    // Check if API key is available
     if (!process.env.API_KEY) {
       console.error("API_KEY is missing from environment variables.");
     }
@@ -37,7 +57,6 @@ export class LiveSession {
     try {
       this.config.onConnectionStateChange(ConnectionState.CONNECTING);
 
-      // Initialize Audio Contexts
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       this.outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       
@@ -45,7 +64,6 @@ export class LiveSession {
       this.outputNode = this.outputAudioContext.createGain();
       this.outputNode.connect(this.outputAudioContext.destination);
 
-      // Get Microphone Stream
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       this.sessionPromise = this.client.live.connect({
@@ -53,9 +71,10 @@ export class LiveSession {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }, // Choices: Puck, Charon, Kore, Fenrir, Zephyr
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } },
           },
           systemInstruction: this.config.systemInstruction,
+          tools: [{ functionDeclarations: [feedbackTool] }], // Enable Feedback Tool
           inputAudioTranscription: {},
           outputAudioTranscription: {},
         },
@@ -73,18 +92,26 @@ export class LiveSession {
     }
   }
 
+  // Allow sending a text trigger to start the conversation
+  async sendText(text: string) {
+    if (this.sessionPromise) {
+        const session = await this.sessionPromise;
+        await session.sendRealtimeInput({
+            content: { parts: [{ text }] }
+        });
+    }
+  }
+
   private handleOpen() {
     this.config.onConnectionStateChange(ConnectionState.CONNECTED);
     if (!this.inputAudioContext || !this.stream) return;
 
     const source = this.inputAudioContext.createMediaStreamSource(this.stream);
-    // Use ScriptProcessor for raw PCM access (AudioWorklet is better but more complex to setup in a single file constraint)
     this.scriptProcessor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
 
     this.scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
       const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
       
-      // Calculate amplitude for visualizer
       let sum = 0;
       for (let i = 0; i < inputData.length; i++) {
         sum += inputData[i] * inputData[i];
@@ -106,7 +133,35 @@ export class LiveSession {
   }
 
   private async handleMessage(message: LiveServerMessage) {
-    // 1. Handle Transcriptions
+    // 1. Handle Tool Calls (Feedback)
+    if (message.toolCall) {
+        for (const fc of message.toolCall.functionCalls) {
+            if (fc.name === 'giveFeedback') {
+                const args = fc.args as any;
+                this.config.onFeedback({
+                    original: args.original,
+                    better: args.better,
+                    analysis: args.analysis,
+                    chunks: args.chunks || []
+                });
+                
+                // We must respond to the tool call to keep the session going, 
+                // even if we just say "ok".
+                if (this.sessionPromise) {
+                    const session = await this.sessionPromise;
+                    session.sendToolResponse({
+                        functionResponses: {
+                            id: fc.id,
+                            name: fc.name,
+                            response: { result: "Feedback received and displayed to user." }
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. Handle Transcriptions
     if (message.serverContent?.outputTranscription) {
       this.currentOutputTranscription += message.serverContent.outputTranscription.text;
     } else if (message.serverContent?.inputTranscription) {
@@ -134,11 +189,10 @@ export class LiveSession {
         this.currentOutputTranscription = '';
     }
 
-    // 2. Handle Audio Output
+    // 3. Handle Audio Output
     const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (base64Audio && this.outputAudioContext && this.outputNode) {
-      // Visualizer amp (simulated from playback or just use a random jitter for model speaking)
-       this.config.onAudioData(0.5); // Pulse visualizer when model speaks
+       this.config.onAudioData(0.5); 
 
       this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
       
@@ -161,15 +215,14 @@ export class LiveSession {
       this.sources.add(source);
     }
 
-    // 3. Handle Interruption
-    const interrupted = message.serverContent?.interrupted;
-    if (interrupted) {
+    // 4. Handle Interruption
+    if (message.serverContent?.interrupted) {
       this.sources.forEach(source => {
         source.stop();
         this.sources.delete(source);
       });
       this.nextStartTime = 0;
-      this.currentOutputTranscription = ''; // Clear stale transcription
+      this.currentOutputTranscription = '';
     }
   }
 
@@ -186,34 +239,24 @@ export class LiveSession {
   }
 
   async disconnect() {
-    if (this.sessionPromise) {
-        const session = await this.sessionPromise;
-        // The API doesn't expose a close method on the session object strictly in the type definitions sometimes provided,
-        // but it is good practice if available. If not, closing the contexts stops data flow.
-        // Assuming session.close() is available or handled by the library internally on context destruction.
-    }
-    
+    // Cleanup code...
     if (this.scriptProcessor) {
         this.scriptProcessor.disconnect();
         this.scriptProcessor.onaudioprocess = null;
         this.scriptProcessor = null;
     }
-    
     if (this.stream) {
         this.stream.getTracks().forEach(track => track.stop());
         this.stream = null;
     }
-
     if (this.inputAudioContext) {
         this.inputAudioContext.close();
         this.inputAudioContext = null;
     }
-
     if (this.outputAudioContext) {
         this.outputAudioContext.close();
         this.outputAudioContext = null;
     }
-    
     this.sources.clear();
     this.nextStartTime = 0;
     this.sessionPromise = null;

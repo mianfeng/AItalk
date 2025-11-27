@@ -3,6 +3,14 @@ export interface Message {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
+  feedback?: Feedback; // Optional feedback attached to a model's turn
+}
+
+export interface Feedback {
+  original: string;
+  better: string;
+  analysis: string;
+  chunks: string[];
 }
 
 export type ItemType = 'word' | 'sentence' | 'idiom';
@@ -10,6 +18,7 @@ export type ItemType = 'word' | 'sentence' | 'idiom';
 export interface StudyItem {
   id: string;
   text: string;
+  translation: string; // Chinese translation
   definition: string;
   example: string;
   type: ItemType;
@@ -41,4 +50,19 @@ export interface DailyStats {
   date: string;
   itemsLearned: number;
   completedSpeaking: boolean;
+}
+
+// New Types for Turn-Based Conversation
+export interface AnalysisResult {
+  userTranscript: string;
+  betterVersion: string;
+  analysis: string; // Chinese explanation
+  score: number; // 1-100
+  replyText: string; // AI's response to continue conversation
+}
+
+export interface DailyQuoteItem {
+  english: string;
+  chinese: string;
+  source: string; // e.g., "Friends S01E02" or "The Great Gatsby"
 }

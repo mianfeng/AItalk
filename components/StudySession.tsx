@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StudyItem } from '../types';
-import { Check, X, Volume2 } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle } from 'lucide-react';
 
 interface StudySessionProps {
   items: StudyItem[];
@@ -31,13 +31,15 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
   };
 
   const playTTS = (text: string) => {
+    // Simple browser TTS
+    window.speechSynthesis.cancel();
     const speech = new SpeechSynthesisUtterance(text);
     speech.lang = 'en-US';
     speech.rate = 0.9;
     window.speechSynthesis.speak(speech);
   };
 
-  if (!currentItem) return <div className="text-center p-10">学习完成！</div>;
+  if (!currentItem) return <div className="text-center p-10 text-slate-300">学习完成！</div>;
 
   return (
     <div className="flex flex-col items-center justify-center h-full w-full max-w-lg mx-auto p-4">
@@ -47,7 +49,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
        </div>
 
        {/* Card Container */}
-       {/* Using custom css classes: perspective-1000 defined in index.html */}
        <div className="perspective-1000 w-full aspect-[4/3] relative group">
           <div 
             className={`w-full h-full transition-transform duration-500 transform-style-3d relative cursor-pointer ${isFlipped ? 'rotate-y-180' : ''}`}
@@ -64,23 +65,39 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
                  {currentItem.pronunciation && (
                      <p className="text-slate-400 font-mono text-sm">{currentItem.pronunciation}</p>
                  )}
-                 <p className="absolute bottom-8 text-slate-500 text-xs animate-pulse">点击翻转</p>
+                 <p className="absolute bottom-8 text-slate-500 text-xs animate-pulse">点击翻转查看</p>
              </div>
 
              {/* Back */}
              <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-8 shadow-xl">
                  <div className="flex-1 flex flex-col items-center justify-center w-full">
-                     <button 
-                        onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
-                        className="mb-4 p-3 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors"
-                     >
-                        <Volume2 size={24} />
-                     </button>
-                     <p className="text-lg text-slate-300 text-center mb-6 leading-relaxed">
+                     <div className="flex items-center gap-2 mb-2">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
+                            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors"
+                        >
+                            <Volume2 size={20} />
+                        </button>
+                        <h3 className="text-xl font-bold text-slate-200">{currentItem.text}</h3>
+                     </div>
+                     
+                     {/* Chinese Translation */}
+                     <p className="text-xl text-emerald-400 font-bold mb-2">{currentItem.translation}</p>
+                     
+                     {/* English Definition */}
+                     <p className="text-sm text-slate-400 text-center mb-6 leading-relaxed px-4">
                         {currentItem.definition}
                      </p>
-                     <div className="w-full bg-slate-800/50 p-4 rounded-xl border-l-4 border-blue-500">
-                        <p className="text-sm text-slate-400 italic">"{currentItem.example}"</p>
+
+                     {/* Example Sentence */}
+                     <div className="w-full bg-slate-800/50 p-4 rounded-xl border-l-4 border-blue-500 relative group/example">
+                        <p className="text-sm text-slate-300 italic pr-8">"{currentItem.example}"</p>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); playTTS(currentItem.example); }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-500 hover:text-white transition-colors"
+                        >
+                            <PlayCircle size={18} />
+                        </button>
                      </div>
                  </div>
              </div>

@@ -1,18 +1,27 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { StudyItem } from "../types";
+import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
 
-export async function generateDailyContent(count: number = 5): Promise<StudyItem[]> {
-  const client = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-  const model = "gemini-2.5-flash";
-  
-  const prompt = `Generate ${count} distinct, high-frequency English oral expressions, idioms, or useful sentences for a learner who wants to sound native in daily casual and professional settings. 
+const client = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const modelName = "gemini-2.5-flash";
+
+// --- Daily Plan Generation ---
+export async function generateDailyContent(count: number = 15): Promise<StudyItem[]> {
+  const prompt = `Generate ${count} distinct, high-frequency English oral expressions, idioms, or useful sentences for a Chinese learner who wants to sound native in daily casual and professional settings. 
   Mix between single words/idioms (type='word') and full sentences (type='sentence').
-  Provide a clear, simple English definition and one usage example.
+  
+  Required fields:
+  - text: The English expression.
+  - translation: The Chinese translation (meaning).
+  - definition: A simple English definition.
+  - example: A sentence using the term.
+  - pronunciation: IPA or simple phonetic spelling.
+  - type: 'word', 'sentence', or 'idiom'.
+
   Focus on: Office small talk, expressing opinions, and modern daily life slang.`;
 
   try {
     const response = await client.models.generateContent({
-      model: model,
+      model: modelName,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -21,13 +30,14 @@ export async function generateDailyContent(count: number = 5): Promise<StudyItem
           items: {
             type: Type.OBJECT,
             properties: {
-              text: { type: Type.STRING, description: "The word, idiom, or sentence" },
-              definition: { type: Type.STRING, description: "Simple explanation in English" },
-              example: { type: Type.STRING, description: "A sentence using the term" },
+              text: { type: Type.STRING },
+              translation: { type: Type.STRING },
+              definition: { type: Type.STRING },
+              example: { type: Type.STRING },
               type: { type: Type.STRING, enum: ["word", "sentence", "idiom"] },
-              pronunciation: { type: Type.STRING, description: "IPA or simple phonetic spelling" }
+              pronunciation: { type: Type.STRING }
             },
-            required: ["text", "definition", "example", "type"]
+            required: ["text", "translation", "definition", "example", "type"]
           }
         }
       }
@@ -43,10 +53,118 @@ export async function generateDailyContent(count: number = 5): Promise<StudyItem
     return [];
   } catch (error) {
     console.error("Failed to generate content", error);
-    // Fallback content if API fails
-    return [
-        { id: '1', text: 'touch base', type: 'idiom', definition: 'To briefly contact someone', example: 'Let’s touch base later today.', pronunciation: '/tʌtʃ beɪs/' },
-        { id: '2', text: 'call it a day', type: 'idiom', definition: 'Stop working for the day', example: 'I’m tired, let’s call it a day.', pronunciation: '/kɔːl ɪt ə deɪ/' },
-    ];
+    return [];
   }
+}
+
+// --- Daily Quote Generation ---
+export async function generateDailyQuote(): Promise<DailyQuoteItem> {
+  const prompt = `Generate ONE inspiring or interesting English quote/idiom/slang from a famous movie, TV show (like Friends, Modern Family), or book.
+  Return JSON: { "english": "...", "chinese": "...", "source": "..." }`;
+
+  try {
+    const response = await client.models.generateContent({
+      model: modelName,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            english: { type: Type.STRING },
+            chinese: { type: Type.STRING },
+            source: { type: Type.STRING }
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text);
+    }
+    throw new Error("No data");
+  } catch (e) {
+    return {
+      english: "Pivot!",
+      chinese: "转！(Friends 经典台词)",
+      source: "Friends"
+    };
+  }
+}
+
+// --- Audio Analysis & Conversation Turn ---
+export async function analyzeAudioResponse(
+  audioBase64: string, 
+  currentTopic: string,
+  history: {user: string, ai: string}[]
+): Promise<AnalysisResult> {
+  
+  // Construct context from history
+  const historyText = history.map(h => `AI: ${h.ai}\nUser: ${h.user}`).join('\n');
+  
+  const prompt = `
+    Context: The user is practicing spoken English. 
+    Current Topic/AI Question: "${currentTopic}"
+    Conversation History:
+    ${historyText}
+
+    Task:
+    1. Transcribe the user's audio input (contained in this request).
+    2. Analyze their grammar, pronunciation, and naturalness.
+    3. Provide a 'betterVersion' (Native speaker rewrite).
+    4. Provide 'analysis' in Chinese (What was wrong? Why is the better version better?).
+    5. Give a 'score' (0-100).
+    6. Generate 'replyText': The AI's next conversational response to keep the chat going.
+  `;
+
+  try {
+    const response = await client.models.generateContent({
+      model: modelName,
+      contents: {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "audio/webm", data: audioBase64 } } // Assuming webm from MediaRecorder
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            userTranscript: { type: Type.STRING },
+            betterVersion: { type: Type.STRING },
+            analysis: { type: Type.STRING },
+            score: { type: Type.NUMBER },
+            replyText: { type: Type.STRING }
+          },
+          required: ["userTranscript", "betterVersion", "analysis", "score", "replyText"]
+        }
+      }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text);
+    }
+    throw new Error("Empty response");
+  } catch (error) {
+    console.error("Analysis failed", error);
+    return {
+        userTranscript: "(Error analyzing audio)",
+        betterVersion: "Could not process.",
+        analysis: "系统暂时无法处理音频，请重试。",
+        score: 0,
+        replyText: "Please try saying that again."
+    };
+  }
+}
+
+export async function generateInitialTopic(): Promise<string> {
+    const topics = [
+        "Tell me about a small win you had at work recently.",
+        "What's your favorite way to relax after a long day?",
+        "If you could travel anywhere tomorrow, where would you go?",
+        "What do you think about remote working?",
+        "Describe your favorite food to me."
+    ];
+    return topics[Math.floor(Math.random() * topics.length)];
 }
