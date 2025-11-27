@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { VocabularyItem, StudyItem, DailyStats } from './types';
+import { VocabularyItem, StudyItem, DailyStats, BackupData } from './types';
 import { generateDailyContent } from './services/contentGen';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History } from 'lucide-react';
+import { SettingsModal } from './components/SettingsModal';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'review';
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('dashboard');
+  const [showSettings, setShowSettings] = useState(false);
+  const [showBackupAlert, setShowBackupAlert] = useState(false);
   
   // Data State
   const [vocabList, setVocabList] = useState<VocabularyItem[]>(() => {
@@ -39,6 +42,29 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('lingua_stats', JSON.stringify(dailyStats));
   }, [dailyStats]);
+
+  // Backup Reminder Logic
+  useEffect(() => {
+    const checkBackupStatus = () => {
+        const lastBackup = localStorage.getItem('lingua_last_backup');
+        const now = Date.now();
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+        
+        if (!lastBackup) {
+            // If no backup ever, suggest one if user has been using app for a bit (e.g., has > 20 items)
+            if (vocabList.length > 20) {
+                setShowBackupAlert(true);
+            }
+        } else {
+            if (now - parseInt(lastBackup) > THIRTY_DAYS) {
+                setShowBackupAlert(true);
+            }
+        }
+    };
+    
+    // Check on mount
+    checkBackupStatus();
+  }, [vocabList.length]);
 
   // Derived State: Get items reviewed/added today for the Review List
   const learnedToday = vocabList.filter(item => {
@@ -113,6 +139,20 @@ const App: React.FC = () => {
     setMode('dashboard'); 
   };
 
+  const handleRestoreData = (data: BackupData) => {
+      if (data.vocabList) setVocabList(data.vocabList);
+      if (data.dailyStats) setDailyStats(data.dailyStats);
+      
+      // Clear alert if we just restored (implies we have data now)
+      setShowBackupAlert(false);
+  };
+
+  const dismissAlert = () => {
+      setShowBackupAlert(false);
+      // Remind again in 24 hours simply by relying on component remount logic or we could set a temp flag.
+      // For now, closing it hides it for this session.
+  };
+
   // --- Render ---
 
   return (
@@ -135,6 +175,12 @@ const App: React.FC = () => {
                 <Flame size={14} className={dailyStats.itemsLearned > 0 ? "text-orange-500 fill-orange-500" : "text-slate-600"} />
                 <span className="text-xs font-mono text-slate-300">{dailyStats.itemsLearned} 词</span>
             </div>
+            <button 
+                onClick={() => setShowSettings(true)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-full transition-colors"
+            >
+                <Settings size={20} />
+            </button>
         </div>
       </header>
 
@@ -255,6 +301,39 @@ const App: React.FC = () => {
         {/* VIEW: LIVE (Conversation Mode) */}
         {mode === 'live' && (
             <ConversationMode onExit={() => setMode('dashboard')} />
+        )}
+
+        {/* MODAL: SETTINGS */}
+        <SettingsModal 
+            show={showSettings} 
+            onClose={() => setShowSettings(false)} 
+            vocabList={vocabList}
+            dailyStats={dailyStats}
+            onRestore={handleRestoreData}
+        />
+
+        {/* BACKUP REMINDER BANNER */}
+        {showBackupAlert && mode === 'dashboard' && (
+            <div className="absolute bottom-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-lg bg-amber-500/10 border border-amber-500/50 backdrop-blur-md rounded-xl p-4 shadow-xl flex items-center justify-between z-40 animate-in slide-in-from-bottom-5">
+                <div className="flex items-center gap-3">
+                    <AlertTriangle className="text-amber-500 shrink-0" size={20} />
+                    <div className="text-sm">
+                        <p className="text-amber-200 font-bold">建议备份数据</p>
+                        <p className="text-amber-400/80 text-xs">您已超过30天未备份学习记录。</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={() => setShowSettings(true)}
+                        className="px-3 py-1.5 bg-amber-500 text-slate-900 text-xs font-bold rounded-lg hover:bg-amber-400"
+                    >
+                        去备份
+                    </button>
+                    <button onClick={dismissAlert} className="p-1 text-amber-500/50 hover:text-amber-500">
+                        <X size={16} />
+                    </button>
+                </div>
+            </div>
         )}
 
       </main>

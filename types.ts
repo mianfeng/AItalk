@@ -67,3 +67,11 @@ export interface DailyQuoteItem {
   chinese: string;
   source: string; // e.g., "Friends S01E02" or "The Great Gatsby"
 }
+
+// Data Export/Import Structure
+export interface BackupData {
+  vocabList: VocabularyItem[];
+  dailyStats: DailyStats;
+  timestamp: number;
+  version: number;
+}
