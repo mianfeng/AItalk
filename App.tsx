@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType, SessionResult } from './types';
 import { generateDailyContent } from './services/contentGen';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle } from 'lucide-react';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'review';
 
@@ -32,7 +32,12 @@ const App: React.FC = () => {
   });
 
   const [todaysItems, setTodaysItems] = useState<StudyItem[]>([]);
+  // Persistence for Study Index
+  const [studyIndex, setStudyIndex] = useState(0); 
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Global Audio Cache for Study Session
+  const audioCache = useRef<Map<string, string>>(new Map());
 
   // Persistence
   useEffect(() => {
@@ -51,7 +56,6 @@ const App: React.FC = () => {
         const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
         
         if (!lastBackup) {
-            // If no backup ever, suggest one if user has been using app for a bit (e.g., has > 20 items)
             if (vocabList.length > 20) {
                 setShowBackupAlert(true);
             }
@@ -62,7 +66,6 @@ const App: React.FC = () => {
         }
     };
     
-    // Check on mount
     checkBackupStatus();
   }, [vocabList.length]);
 
@@ -77,19 +80,28 @@ const App: React.FC = () => {
   // --- Handlers ---
 
   const startDailyPlan = async () => {
+    // If we have items and haven't finished, just resume
+    if (todaysItems.length > 0 && studyIndex < todaysItems.length) {
+        setMode('study');
+        return;
+    }
+
     setIsGenerating(true);
     try {
         const now = Date.now();
         // Pick items to review (older than 24h and not mastered)
+        // Mark them as 'saved' because they are already in our collection
         const reviewItems = vocabList
             .filter(v => v.masteryLevel < 5 && (now - v.addedAt > 86400000))
             .sort(() => 0.5 - Math.random())
-            .slice(0, 5); // Review up to 5 items
+            .slice(0, 5)
+            .map(v => ({ ...v, saved: true }));
 
         // Generate new items
-        // If user has already learned 15, we can generate fewer or keep generating 15 for extra practice
+        // Mark them as 'saved: false' initially. User must collect them to keep them.
         const countToGenerate = 15; 
-        const newItems = await generateDailyContent(countToGenerate);
+        const generatedItems = await generateDailyContent(countToGenerate);
+        const newItems = generatedItems.map(item => ({ ...item, saved: false }));
 
         if (newItems.length === 0 && reviewItems.length === 0) {
             alert("生成学习内容失败，请检查网络或稍后重试。");
@@ -97,6 +109,10 @@ const App: React.FC = () => {
         }
 
         setTodaysItems([...reviewItems, ...newItems]);
+        setStudyIndex(0); // Reset index for new session
+        
+        audioCache.current.clear(); 
+        
         setMode('study');
     } catch (e) {
         console.error(e);
@@ -106,36 +122,61 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStudyComplete = (learned: StudyItem[]) => {
+  const handleStudyProgress = (index: number) => {
+      setStudyIndex(index);
+  };
+
+  const handleStudyComplete = (results: SessionResult[]) => {
     const now = Date.now();
-    const newVocab: VocabularyItem[] = learned.map(item => {
-        const existing = vocabList.find(v => v.text === item.text);
-        if (existing) {
-            return { 
-                ...existing, 
-                masteryLevel: Math.min(5, existing.masteryLevel + 1), 
-                nextReviewAt: now + 86400000,
-                lastReviewed: now
-            };
+    let newItemsCount = 0;
+
+    const updatedVocabList = [...vocabList];
+
+    results.forEach(({ item, remembered }) => {
+        // CASE 1: Item is COLLECTED (Saved)
+        if (item.saved) {
+            const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
+            
+            if (existingIndex >= 0) {
+                // Update existing item
+                const existing = updatedVocabList[existingIndex];
+                updatedVocabList[existingIndex] = {
+                    ...existing,
+                    lastReviewed: now,
+                    nextReviewAt: now + 86400000, // Simple SRS: +1 day for now
+                    // If remembered, increase level. If not, reset to 1 or keep same?
+                    // Let's say: Remembered -> +1. Forgot -> Set to 1 (Review mode).
+                    masteryLevel: remembered ? Math.min(5, existing.masteryLevel + 1) : Math.max(1, existing.masteryLevel - 1)
+                };
+            } else {
+                // Add new item
+                updatedVocabList.unshift({
+                    ...item,
+                    addedAt: now,
+                    lastReviewed: now,
+                    nextReviewAt: now + 86400000,
+                    masteryLevel: remembered ? 1 : 0 // If mastered immediately, Lv1. If failed, Lv0.
+                });
+                newItemsCount++;
+            }
+        } 
+        // CASE 2: Item is NOT COLLECTED
+        else {
+            // If it existed in the list but user un-collected it, remove it.
+            const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
+            if (existingIndex >= 0) {
+                updatedVocabList.splice(existingIndex, 1);
+            }
+            // If it was new, we simply don't add it.
         }
-        return { 
-            ...item, 
-            addedAt: now, 
-            nextReviewAt: now + 86400000, 
-            lastReviewed: now,
-            masteryLevel: 1 
-        };
     });
 
-    const updatedList = [...vocabList];
-    newVocab.forEach(newItem => {
-        const idx = updatedList.findIndex(v => v.text === newItem.text);
-        if (idx >= 0) updatedList[idx] = newItem;
-        else updatedList.unshift(newItem);
-    });
-
-    setVocabList(updatedList);
-    setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + learned.length }));
+    setVocabList(updatedVocabList);
+    // Count all processed items towards daily goal, regardless of result
+    setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
+    setTodaysItems([]); // Clear current session
+    setStudyIndex(0);
+    audioCache.current.clear(); // Clear audio cache
     setMode('dashboard'); 
   };
 
@@ -154,7 +195,8 @@ const App: React.FC = () => {
       example: "",
       addedAt: Date.now(),
       nextReviewAt: Date.now(),
-      masteryLevel: 0
+      masteryLevel: 0,
+      saved: true
     };
 
     setVocabList(prev => [newItem, ...prev]);
@@ -163,16 +205,14 @@ const App: React.FC = () => {
   const handleRestoreData = (data: BackupData) => {
       if (data.vocabList) setVocabList(data.vocabList);
       if (data.dailyStats) setDailyStats(data.dailyStats);
-      
-      // Clear alert if we just restored (implies we have data now)
       setShowBackupAlert(false);
   };
 
   const dismissAlert = () => {
       setShowBackupAlert(false);
-      // Remind again in 24 hours simply by relying on component remount logic or we could set a temp flag.
-      // For now, closing it hides it for this session.
   };
+
+  const isSessionActive = todaysItems.length > 0 && studyIndex < todaysItems.length;
 
   // --- Render ---
 
@@ -194,7 +234,8 @@ const App: React.FC = () => {
         <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 rounded-full border border-slate-800">
                 <Flame size={14} className={dailyStats.itemsLearned > 0 ? "text-orange-500 fill-orange-500" : "text-slate-600"} />
-                <span className="text-xs font-mono text-slate-300">{dailyStats.itemsLearned} 词</span>
+                {/* Shows Total Words Collected */}
+                <span className="text-xs font-mono text-slate-300">{vocabList.length} 词</span>
             </div>
             <button 
                 onClick={() => setShowSettings(true)}
@@ -212,69 +253,99 @@ const App: React.FC = () => {
         {mode === 'dashboard' && (
            <div className="h-full overflow-y-auto p-4 md:p-6 pb-24 max-w-2xl mx-auto flex flex-col items-center">
               
-              {/* Daily Progress Card */}
-              <div className="w-full bg-slate-900 border border-slate-800 rounded-3xl p-5 md:p-8 mb-6 md:mb-8 relative overflow-hidden shrink-0">
+              {/* Daily Progress / Action Cards (Consolidated) */}
+              <div className="w-full mb-6 md:mb-8 shrink-0">
+                  <h2 className="text-xl md:text-2xl font-bold text-white mb-4">今日练习</h2>
                   
-                  <div className="relative z-10">
-                      <h2 className="text-xl md:text-2xl font-bold text-white mb-2">今日目标</h2>
-                      <p className="text-sm md:text-base text-slate-400 mb-6">积累词汇，然后开口练习。</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       
-                      {/* Stats Row */}
-                      <div className="flex flex-col sm:flex-row gap-3 md:gap-4 mb-6 md:mb-8">
-                         <div className={`flex-1 p-4 rounded-2xl border ${dailyStats.itemsLearned >= 15 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
-                             <div className="flex justify-between items-start mb-2">
-                                 <Book size={20} className={dailyStats.itemsLearned >= 15 ? 'text-emerald-400' : 'text-slate-500'} />
-                                 {dailyStats.itemsLearned >= 15 && <CheckCircle size={16} className="text-emerald-500" />}
+                      {/* Left Card: Vocab Study */}
+                      <button 
+                        onClick={startDailyPlan}
+                        disabled={isGenerating}
+                        className={`text-left p-5 rounded-3xl border transition-all relative overflow-hidden group ${
+                            dailyStats.itemsLearned >= 15 && !isSessionActive
+                            ? 'bg-emerald-900/10 border-emerald-500/30 hover:bg-emerald-900/20' 
+                            : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-800'
+                        }`}
+                      >
+                         <div className="flex justify-between items-start mb-6 relative z-10">
+                             <div className={`p-3 rounded-2xl ${dailyStats.itemsLearned >= 15 && !isSessionActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400 group-hover:text-emerald-400 group-hover:bg-slate-950 transition-colors'}`}>
+                                <Book size={24} />
                              </div>
-                             <div className="text-2xl font-bold text-slate-200">{dailyStats.itemsLearned}/15</div>
-                             <div className="text-xs text-slate-500">已学词汇</div>
+                             {isGenerating ? (
+                                 <RefreshCw className="animate-spin text-slate-500" />
+                             ) : (
+                                 <div className="bg-slate-950/50 p-2 rounded-full text-slate-500 group-hover:text-white transition-colors">
+                                     <Play size={16} fill="currentColor" />
+                                 </div>
+                             )}
                          </div>
-                         <div className="flex-1 p-4 rounded-2xl border bg-slate-800/50 border-slate-700">
-                             <div className="flex justify-between items-start mb-2">
-                                 <Mic size={20} className="text-blue-500" />
+                         
+                         <div className="relative z-10">
+                             <div className="text-3xl font-bold text-slate-100 mb-1">
+                                {isSessionActive ? "继续学习" : "单词学习"}
                              </div>
-                             <div className="text-2xl font-bold text-slate-200">随时</div>
-                             <div className="text-xs text-slate-500">口语实战</div>
-                         </div>
-                      </div>
+                             
+                             <div className="h-5">
+                                {/* Removed Progress: x/15 text as requested */}
+                             </div>
 
-                      {/* Actions */}
-                      <div className="space-y-3">
-                          <div className="flex flex-col sm:flex-row gap-3">
-                              <button 
-                                onClick={startDailyPlan}
-                                disabled={isGenerating}
-                                className={`flex-1 py-3 md:py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
-                                    isGenerating
-                                    ? 'bg-slate-800 text-slate-400 cursor-wait'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'
-                                }`}
-                              >
-                                 {isGenerating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
-                                 {dailyStats.itemsLearned >= 15 ? '继续学习 (已达标)' : '开始单词学习'}
-                              </button>
-                              
-                              <button 
-                                onClick={() => setMode('live')}
-                                className="flex-1 py-3 md:py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
-                              >
-                                 <Mic />
-                                 口语实战
-                              </button>
-                          </div>
-                          
-                          {learnedToday.length > 0 && (
-                            <button 
-                                onClick={() => setMode('review')}
-                                className="w-full py-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 text-slate-400 text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                            >
-                                <History size={14} /> 回顾今日所学 ({learnedToday.length})
-                            </button>
-                          )}
-                      </div>
+                             {isSessionActive && (
+                                 <div className="mt-3 text-xs bg-emerald-500/10 text-emerald-400 inline-block px-2 py-1 rounded border border-emerald-500/20">
+                                     剩余 {todaysItems.length - studyIndex} 个
+                                 </div>
+                             )}
+                             
+                             {!isSessionActive && dailyStats.itemsLearned >= 15 && (
+                                 <div className="mt-3 text-emerald-400 text-sm flex items-center gap-1">
+                                     <CheckCircle size={14} /> 今日目标达成
+                                 </div>
+                             )}
+                         </div>
+                      </button>
+
+                      {/* Right Card: Oral Practice */}
+                      <button 
+                        onClick={() => setMode('live')}
+                        className="text-left p-5 rounded-3xl bg-gradient-to-br from-blue-900/20 to-slate-900 border border-blue-500/20 hover:border-blue-500/40 hover:from-blue-900/30 transition-all relative overflow-hidden group"
+                      >
+                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+
+                         <div className="flex justify-between items-start mb-6 relative z-10">
+                             <div className="p-3 rounded-2xl bg-blue-500/20 text-blue-400 group-hover:scale-110 transition-transform">
+                                <Mic size={24} />
+                             </div>
+                             <div className="bg-slate-950/50 p-2 rounded-full text-slate-500 group-hover:text-white transition-colors">
+                                 <ArrowRight size={16} />
+                             </div>
+                         </div>
+                         
+                         <div className="relative z-10">
+                             <div className="text-3xl font-bold text-slate-100 mb-1">口语实战</div>
+                             <p className="text-sm text-slate-500">模拟真实对话场景</p>
+                             <div className="mt-3 text-xs text-blue-300/60 flex items-center gap-1">
+                                 随时开始 · 智能纠音
+                             </div>
+                         </div>
+                      </button>
 
                   </div>
               </div>
+
+              {/* Review Entry */}
+              {learnedToday.length > 0 && (
+                <button 
+                    onClick={() => setMode('review')}
+                    className="w-full mb-8 bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center justify-between group transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <History size={18} className="text-slate-500 group-hover:text-emerald-400 transition-colors" />
+                        <span className="text-slate-300 font-medium text-sm">回顾今日所学单词 ({learnedToday.length})</span>
+                    </div>
+                    <ArrowRight size={16} className="text-slate-600 group-hover:text-slate-300" />
+                </button>
+              )}
 
               {/* Daily Quote Section */}
               <div className="w-full mb-6 md:mb-8 shrink-0">
@@ -306,11 +377,17 @@ const App: React.FC = () => {
             <div className="h-full relative bg-slate-950">
                 <button 
                   onClick={() => setMode('dashboard')} 
-                  className="absolute top-4 right-4 z-20 p-2 bg-slate-900/50 rounded-full text-slate-500 hover:text-white transition-colors"
+                  className="absolute top-4 left-4 z-20 p-2 bg-slate-900/50 rounded-full text-slate-500 hover:text-white transition-colors"
                 >
                     <X size={20} />
                 </button>
-                <StudySession items={todaysItems} onComplete={handleStudyComplete} />
+                <StudySession 
+                    items={todaysItems} 
+                    initialIndex={studyIndex}
+                    onProgress={handleStudyProgress}
+                    onComplete={handleStudyComplete}
+                    audioCache={audioCache.current} 
+                />
             </div>
         )}
 

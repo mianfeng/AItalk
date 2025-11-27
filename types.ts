@@ -25,6 +25,7 @@ export interface StudyItem {
   type: ItemType;
   pronunciation?: string;
   extra_info?: string; // New: Origin, word usage notes, or synonyms
+  saved?: boolean; // New: Whether the user has collected/bookmarked this item
 }
 
 export interface VocabularyItem extends StudyItem {
@@ -78,4 +79,9 @@ export interface BackupData {
   dailyStats: DailyStats;
   timestamp: number;
   version: number;
+}
+
+export interface SessionResult {
+    item: StudyItem;
+    remembered: boolean;
 }

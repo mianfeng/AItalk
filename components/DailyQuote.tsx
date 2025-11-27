@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { DailyQuoteItem } from '../types';
-import { generateDailyQuote, generateSpeech } from '../services/contentGen';
-import { playAudioFromBase64 } from '../services/audioUtils';
-import { Quote, Loader2, Volume2 } from 'lucide-react';
+import { generateDailyQuote } from '../services/contentGen';
+import { Quote, Loader2 } from 'lucide-react';
 
 export const DailyQuote: React.FC = () => {
   const [quote, setQuote] = useState<DailyQuoteItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     const today = new Date().toDateString();
@@ -28,25 +26,6 @@ export const DailyQuote: React.FC = () => {
         setLoading(false);
     });
   }, []);
-
-  const playTTS = async () => {
-    if (!quote || playing) return;
-    setPlaying(true);
-    try {
-        const base64 = await generateSpeech(quote.english);
-        if (base64) {
-            await playAudioFromBase64(base64);
-        } else {
-            const speech = new SpeechSynthesisUtterance(quote.english);
-            speech.lang = 'en-US';
-            window.speechSynthesis.speak(speech);
-        }
-    } catch (e) {
-        console.error(e);
-    } finally {
-        setPlaying(false);
-    }
-  };
 
   if (loading) return (
       <div className="w-full bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex justify-center py-10">
@@ -71,13 +50,6 @@ export const DailyQuote: React.FC = () => {
                  <p className="text-xl font-serif text-slate-100 leading-relaxed italic">
                     "{quote.english}"
                  </p>
-                 <button 
-                    onClick={playTTS} 
-                    disabled={playing}
-                    className="mt-1 text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
-                 >
-                     {playing ? <Loader2 size={18} className="animate-spin" /> : <Volume2 size={18} />}
-                 </button>
             </div>
             
             <p className="text-slate-400 text-sm mb-4">{quote.chinese}</p>

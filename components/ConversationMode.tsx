@@ -25,6 +25,9 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Audio Cache
+  const audioCache = useRef<Map<string, string>>(new Map());
+
   // Init
   useEffect(() => {
     generateInitialTopic().then(topic => {
@@ -35,6 +38,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
     // Cleanup audio URL on unmount
     return () => {
         if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
+        audioCache.current.clear();
     };
   }, []);
 
@@ -42,13 +46,18 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
     if (playingId) return;
     setPlayingId(id);
     try {
-        const base64 = await generateSpeech(text);
-        if (base64) {
-            await playAudioFromBase64(base64);
+        if (audioCache.current.has(text)) {
+            await playAudioFromBase64(audioCache.current.get(text)!);
         } else {
-            const speech = new SpeechSynthesisUtterance(text);
-            speech.lang = 'en-US';
-            window.speechSynthesis.speak(speech);
+            const base64 = await generateSpeech(text);
+            if (base64) {
+                audioCache.current.set(text, base64);
+                await playAudioFromBase64(base64);
+            } else {
+                const speech = new SpeechSynthesisUtterance(text);
+                speech.lang = 'en-US';
+                window.speechSynthesis.speak(speech);
+            }
         }
     } catch (e) {
         console.error(e);
