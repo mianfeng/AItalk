@@ -45,16 +45,27 @@ const App: React.FC = () => {
     setIsGenerating(true);
     try {
         const now = Date.now();
+        // Pick items to review (older than 24h and not mastered)
         const reviewItems = vocabList
             .filter(v => v.masteryLevel < 5 && (now - v.addedAt > 86400000))
             .sort(() => 0.5 - Math.random())
-            .slice(0, 3);
+            .slice(0, 5); // Review up to 5 items
 
-        const newCount = 15;
-        const newItems = await generateDailyContent(newCount);
+        // Generate new items
+        // If user has already learned 15, we can generate fewer or keep generating 15 for extra practice
+        const countToGenerate = 15; 
+        const newItems = await generateDailyContent(countToGenerate);
+
+        if (newItems.length === 0 && reviewItems.length === 0) {
+            alert("生成学习内容失败，请检查网络或稍后重试。");
+            return;
+        }
 
         setTodaysItems([...reviewItems, ...newItems]);
         setMode('study');
+    } catch (e) {
+        console.error(e);
+        alert("发生错误，请重试");
     } finally {
         setIsGenerating(false);
     }
@@ -89,10 +100,10 @@ const App: React.FC = () => {
   // --- Render ---
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden">
+    <div className="flex flex-col h-[100dvh] bg-slate-950 text-slate-200 font-sans overflow-hidden">
       
       {/* Top Navigation */}
-      <header className="h-16 border-b border-slate-900 bg-slate-950 flex items-center justify-between px-6 z-10">
+      <header className="h-16 shrink-0 border-b border-slate-900 bg-slate-950 flex items-center justify-between px-4 md:px-6 z-10">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => setMode('dashboard')}>
            <div className="bg-emerald-500/10 p-2 rounded-lg">
              <GraduationCap className="text-emerald-500" size={20} />
@@ -116,16 +127,17 @@ const App: React.FC = () => {
         
         {/* VIEW: DASHBOARD */}
         {mode === 'dashboard' && (
-           <div className="h-full overflow-y-auto p-6 max-w-2xl mx-auto flex flex-col items-center">
+           <div className="h-full overflow-y-auto p-4 md:p-6 pb-24 max-w-2xl mx-auto flex flex-col items-center">
               
               {/* Daily Progress Card */}
-              <div className="w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 mb-8 relative overflow-hidden">
+              <div className="w-full bg-slate-900 border border-slate-800 rounded-3xl p-5 md:p-8 mb-6 md:mb-8 relative overflow-hidden shrink-0">
                   
                   <div className="relative z-10">
-                      <h2 className="text-2xl font-bold text-white mb-2">今日目标</h2>
-                      <p className="text-slate-400 mb-6">积累词汇，然后开口练习。</p>
+                      <h2 className="text-xl md:text-2xl font-bold text-white mb-2">今日目标</h2>
+                      <p className="text-sm md:text-base text-slate-400 mb-6">积累词汇，然后开口练习。</p>
                       
-                      <div className="flex gap-4 mb-8">
+                      {/* Stats Row */}
+                      <div className="flex flex-col sm:flex-row gap-3 md:gap-4 mb-6 md:mb-8">
                          <div className={`flex-1 p-4 rounded-2xl border ${dailyStats.itemsLearned >= 15 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
                              <div className="flex justify-between items-start mb-2">
                                  <Book size={20} className={dailyStats.itemsLearned >= 15 ? 'text-emerald-400' : 'text-slate-500'} />
@@ -143,23 +155,24 @@ const App: React.FC = () => {
                          </div>
                       </div>
 
-                      <div className="flex gap-3">
+                      {/* Actions */}
+                      <div className="flex flex-col sm:flex-row gap-3">
                           <button 
                             onClick={startDailyPlan}
-                            disabled={isGenerating || dailyStats.itemsLearned >= 15}
-                            className={`flex-1 py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
-                                dailyStats.itemsLearned >= 15 
-                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                            disabled={isGenerating}
+                            className={`flex-1 py-3 md:py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
+                                isGenerating
+                                ? 'bg-slate-800 text-slate-400 cursor-wait'
                                 : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'
                             }`}
                           >
                              {isGenerating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
-                             {dailyStats.itemsLearned >= 15 ? '今日已完成' : '开始单词学习'}
+                             {dailyStats.itemsLearned >= 15 ? '继续学习 (已达标)' : '开始单词学习'}
                           </button>
                           
                           <button 
                             onClick={() => setMode('live')}
-                            className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
+                            className="flex-1 py-3 md:py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
                           >
                              <Mic />
                              口语实战
@@ -169,21 +182,21 @@ const App: React.FC = () => {
               </div>
 
               {/* Daily Quote Section */}
-              <div className="w-full mb-8">
+              <div className="w-full mb-6 md:mb-8 shrink-0">
                   <DailyQuote />
               </div>
 
               {/* Recent Vocab List */}
-              <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shrink-0">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">最近学习</h3>
                 <div className="space-y-3">
                     {vocabList.slice(0, 5).map((item, i) => (
                         <div key={i} className="flex justify-between items-center text-sm border-b border-slate-800/50 pb-2 last:border-0">
-                            <div>
-                                <span className="text-slate-300 block">{item.text}</span>
-                                <span className="text-xs text-slate-500 block">{item.translation}</span>
+                            <div className="max-w-[70%]">
+                                <span className="text-slate-300 block truncate">{item.text}</span>
+                                <span className="text-xs text-slate-500 block truncate">{item.translation}</span>
                             </div>
-                            <span className="text-xs text-slate-600 bg-slate-950 px-2 py-0.5 rounded">Lv {item.masteryLevel}</span>
+                            <span className="text-xs text-slate-600 bg-slate-950 px-2 py-0.5 rounded shrink-0">Lv {item.masteryLevel}</span>
                         </div>
                     ))}
                     {vocabList.length === 0 && <p className="text-slate-600 text-sm italic">暂无记录。</p>}
@@ -198,9 +211,9 @@ const App: React.FC = () => {
             <div className="h-full relative bg-slate-950">
                 <button 
                   onClick={() => setMode('dashboard')} 
-                  className="absolute top-4 right-4 z-20 text-slate-500 hover:text-slate-300"
+                  className="absolute top-4 right-4 z-20 p-2 bg-slate-900/50 rounded-full text-slate-500 hover:text-white transition-colors"
                 >
-                    <X />
+                    <X size={20} />
                 </button>
                 <StudySession items={todaysItems} onComplete={handleStudyComplete} />
             </div>

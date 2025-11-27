@@ -71,12 +71,13 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
         setState('recording');
     } catch (e) {
         console.error("Mic error", e);
-        alert("无法访问麦克风");
+        alert("无法访问麦克风，请检查权限。");
+        setState('idle');
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && state === 'recording') {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
     }
   };
@@ -97,21 +98,21 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
     <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
       
       {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-900 flex justify-between items-center">
+      <div className="px-6 py-4 shrink-0 border-b border-slate-900 flex justify-between items-center bg-slate-950 sticky top-0 z-10">
           <div className="flex items-center gap-2">
             <span className="bg-blue-500/10 text-blue-400 p-1.5 rounded-lg"><Mic size={18} /></span>
-            <span className="font-semibold">模拟对话练习</span>
+            <span className="font-semibold text-sm md:text-base">模拟对话练习</span>
           </div>
-          <button onClick={onExit} className="text-slate-500 hover:text-slate-300 text-sm">结束练习</button>
+          <button onClick={onExit} className="text-slate-500 hover:text-slate-300 text-xs md:text-sm bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">结束练习</button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center p-6 max-w-3xl mx-auto w-full gap-8">
+      <div className="flex-1 flex flex-col items-center p-4 md:p-6 max-w-3xl mx-auto w-full gap-6 md:gap-8 pb-20">
           
           {/* AI Topic Bubble */}
           <div className="w-full">
              <div className="text-xs text-slate-500 mb-2 uppercase tracking-wider font-bold">AI 话题 / 问题</div>
              <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 relative">
-                 <p className="text-xl md:text-2xl font-medium text-slate-100 pr-10 leading-relaxed">
+                 <p className="text-lg md:text-2xl font-medium text-slate-100 pr-10 leading-relaxed">
                     {currentTopic}
                  </p>
                  <button 
@@ -137,11 +138,11 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
                       <div className="flex flex-col items-center gap-6">
                           <div className={`relative transition-all duration-300 ${state === 'recording' ? 'scale-110' : 'scale-100'}`}>
                               {state === 'recording' && (
-                                  <div className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-20"></div>
+                                  <div className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-20 pointer-events-none"></div>
                               )}
                               <button
                                 onClick={state === 'recording' ? stopRecording : startRecording}
-                                className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-colors ${
+                                className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-colors relative z-10 ${
                                     state === 'recording' 
                                     ? 'bg-red-500 text-white' 
                                     : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white hover:shadow-blue-500/25'
@@ -160,7 +161,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
 
           {/* Analysis Result (Only visible when reviewing) */}
           {state === 'reviewing' && analysis && (
-              <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+              <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                       
                       {/* Header Score */}

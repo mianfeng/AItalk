@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StudyItem } from '../types';
-import { Check, X, Volume2, PlayCircle } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle } from 'lucide-react';
 
 interface StudySessionProps {
   items: StudyItem[];
@@ -12,8 +12,19 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
   const [isFlipped, setIsFlipped] = useState(false);
   const [mastered, setMastered] = useState<StudyItem[]>([]);
 
+  // Guard against empty items
+  if (!items || items.length === 0) {
+      return (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 p-6">
+              <AlertCircle size={48} className="mb-4 text-slate-600" />
+              <p>暂无学习内容，请返回重新生成。</p>
+          </div>
+      );
+  }
+
   const currentItem = items[currentIndex];
-  const progress = ((currentIndex) / items.length) * 100;
+  // Safe calculation for progress
+  const progress = items.length > 0 ? ((currentIndex) / items.length) * 100 : 0;
 
   const handleNext = (remembered: boolean) => {
     if (remembered) {
@@ -42,14 +53,14 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
   if (!currentItem) return <div className="text-center p-10 text-slate-300">学习完成！</div>;
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full max-w-lg mx-auto p-4">
+    <div className="flex flex-col items-center justify-center h-full w-full max-w-lg mx-auto p-4 md:p-6">
        {/* Progress Bar */}
-       <div className="w-full h-1.5 bg-slate-800 rounded-full mb-8 overflow-hidden">
+       <div className="w-full h-1.5 bg-slate-800 rounded-full mb-8 overflow-hidden shrink-0">
           <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
        </div>
 
        {/* Card Container */}
-       <div className="perspective-1000 w-full aspect-[4/3] relative group">
+       <div className="perspective-1000 w-full aspect-[4/5] md:aspect-[4/3] relative group shrink-0">
           <div 
             className={`w-full h-full transition-transform duration-500 transform-style-3d relative cursor-pointer ${isFlipped ? 'rotate-y-180' : ''}`}
             onClick={() => setIsFlipped(!isFlipped)}
@@ -59,7 +70,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
                  <span className="text-xs font-semibold tracking-widest text-emerald-400 uppercase mb-4 bg-emerald-900/30 px-3 py-1 rounded-full">
                     {currentItem.type === 'word' ? '单词' : (currentItem.type === 'sentence' ? '句子' : '习语')}
                  </span>
-                 <h2 className="text-3xl md:text-4xl font-bold text-center text-slate-100 mb-4">
+                 <h2 className="text-3xl md:text-4xl font-bold text-center text-slate-100 mb-4 select-none">
                     {currentItem.text}
                  </h2>
                  {currentItem.pronunciation && (
@@ -69,23 +80,23 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
              </div>
 
              {/* Back */}
-             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-8 shadow-xl">
+             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto">
                  <div className="flex-1 flex flex-col items-center justify-center w-full">
                      <div className="flex items-center gap-2 mb-2">
                         <button 
                             onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
-                            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors"
+                            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors shrink-0"
                         >
                             <Volume2 size={20} />
                         </button>
-                        <h3 className="text-xl font-bold text-slate-200">{currentItem.text}</h3>
+                        <h3 className="text-xl font-bold text-slate-200 text-center">{currentItem.text}</h3>
                      </div>
                      
                      {/* Chinese Translation */}
-                     <p className="text-xl text-emerald-400 font-bold mb-2">{currentItem.translation}</p>
+                     <p className="text-xl text-emerald-400 font-bold mb-4 text-center">{currentItem.translation}</p>
                      
                      {/* English Definition */}
-                     <p className="text-sm text-slate-400 text-center mb-6 leading-relaxed px-4">
+                     <p className="text-sm text-slate-400 text-center mb-6 leading-relaxed px-2">
                         {currentItem.definition}
                      </p>
 
@@ -105,18 +116,18 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
        </div>
 
        {/* Controls */}
-       <div className="flex items-center gap-6 mt-10 w-full justify-center">
+       <div className="flex items-center gap-4 md:gap-6 mt-8 w-full justify-center shrink-0">
           {isFlipped ? (
              <>
                 <button 
                   onClick={() => handleNext(false)}
-                  className="flex-1 py-4 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-medium hover:bg-slate-700 hover:border-red-500/50 hover:text-red-400 transition-all flex justify-center items-center gap-2"
+                  className="flex-1 py-3 md:py-4 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-medium hover:bg-slate-700 hover:border-red-500/50 hover:text-red-400 transition-all flex justify-center items-center gap-2"
                 >
                    <X size={20} /> 需复习
                 </button>
                 <button 
                   onClick={() => handleNext(true)}
-                  className="flex-1 py-4 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500 hover:scale-105 shadow-lg shadow-emerald-500/20 transition-all flex justify-center items-center gap-2"
+                  className="flex-1 py-3 md:py-4 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500 hover:scale-105 shadow-lg shadow-emerald-500/20 transition-all flex justify-center items-center gap-2"
                 >
                    <Check size={20} /> 掌握了
                 </button>
@@ -124,7 +135,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
           ) : (
              <button 
                onClick={() => setIsFlipped(true)}
-               className="w-full py-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-500 transition-all flex justify-center items-center gap-2"
+               className="w-full py-3 md:py-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-500 transition-all flex justify-center items-center gap-2"
              >
                 查看答案
              </button>
