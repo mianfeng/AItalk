@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ConnectionState, VocabularyItem, StudyItem, DailyStats } from './types';
+import { VocabularyItem, StudyItem, DailyStats } from './types';
 import { generateDailyContent } from './services/contentGen';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X } from 'lucide-react';
+import { ReviewList } from './components/ReviewList';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History } from 'lucide-react';
 
-type AppMode = 'dashboard' | 'study' | 'live';
+type AppMode = 'dashboard' | 'study' | 'live' | 'review';
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('dashboard');
@@ -38,6 +39,14 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('lingua_stats', JSON.stringify(dailyStats));
   }, [dailyStats]);
+
+  // Derived State: Get items reviewed/added today for the Review List
+  const learnedToday = vocabList.filter(item => {
+      const todayStr = new Date().toDateString();
+      const addedDate = new Date(item.addedAt).toDateString();
+      const reviewDate = item.lastReviewed ? new Date(item.lastReviewed).toDateString() : '';
+      return addedDate === todayStr || reviewDate === todayStr;
+  });
 
   // --- Handlers ---
 
@@ -72,15 +81,22 @@ const App: React.FC = () => {
   };
 
   const handleStudyComplete = (learned: StudyItem[]) => {
+    const now = Date.now();
     const newVocab: VocabularyItem[] = learned.map(item => {
         const existing = vocabList.find(v => v.text === item.text);
         if (existing) {
-            return { ...existing, masteryLevel: Math.min(5, existing.masteryLevel + 1), nextReviewAt: Date.now() + 86400000 };
+            return { 
+                ...existing, 
+                masteryLevel: Math.min(5, existing.masteryLevel + 1), 
+                nextReviewAt: now + 86400000,
+                lastReviewed: now
+            };
         }
         return { 
             ...item, 
-            addedAt: Date.now(), 
-            nextReviewAt: Date.now() + 86400000, 
+            addedAt: now, 
+            nextReviewAt: now + 86400000, 
+            lastReviewed: now,
             masteryLevel: 1 
         };
     });
@@ -156,28 +172,40 @@ const App: React.FC = () => {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex flex-col sm:flex-row gap-3">
-                          <button 
-                            onClick={startDailyPlan}
-                            disabled={isGenerating}
-                            className={`flex-1 py-3 md:py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
-                                isGenerating
-                                ? 'bg-slate-800 text-slate-400 cursor-wait'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'
-                            }`}
-                          >
-                             {isGenerating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
-                             {dailyStats.itemsLearned >= 15 ? '继续学习 (已达标)' : '开始单词学习'}
-                          </button>
+                      <div className="space-y-3">
+                          <div className="flex flex-col sm:flex-row gap-3">
+                              <button 
+                                onClick={startDailyPlan}
+                                disabled={isGenerating}
+                                className={`flex-1 py-3 md:py-4 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
+                                    isGenerating
+                                    ? 'bg-slate-800 text-slate-400 cursor-wait'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'
+                                }`}
+                              >
+                                 {isGenerating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
+                                 {dailyStats.itemsLearned >= 15 ? '继续学习 (已达标)' : '开始单词学习'}
+                              </button>
+                              
+                              <button 
+                                onClick={() => setMode('live')}
+                                className="flex-1 py-3 md:py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
+                              >
+                                 <Mic />
+                                 口语实战
+                              </button>
+                          </div>
                           
-                          <button 
-                            onClick={() => setMode('live')}
-                            className="flex-1 py-3 md:py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
-                          >
-                             <Mic />
-                             口语实战
-                          </button>
+                          {learnedToday.length > 0 && (
+                            <button 
+                                onClick={() => setMode('review')}
+                                className="w-full py-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 text-slate-400 text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                            >
+                                <History size={14} /> 回顾今日所学 ({learnedToday.length})
+                            </button>
+                          )}
                       </div>
+
                   </div>
               </div>
 
@@ -186,7 +214,7 @@ const App: React.FC = () => {
                   <DailyQuote />
               </div>
 
-              {/* Recent Vocab List */}
+              {/* Recent Vocab List (Short Preview) */}
               <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shrink-0">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">最近学习</h3>
                 <div className="space-y-3">
@@ -219,7 +247,12 @@ const App: React.FC = () => {
             </div>
         )}
 
-        {/* VIEW: LIVE (New Conversation Mode) */}
+        {/* VIEW: REVIEW LIST */}
+        {mode === 'review' && (
+            <ReviewList items={learnedToday} onBack={() => setMode('dashboard')} />
+        )}
+
+        {/* VIEW: LIVE (Conversation Mode) */}
         {mode === 'live' && (
             <ConversationMode onExit={() => setMode('dashboard')} />
         )}

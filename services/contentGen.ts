@@ -1,11 +1,22 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
 
-const client = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 const modelName = "gemini-2.5-flash";
+
+function getClient() {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.warn("API_KEY is not set. Content generation will fail.");
+    return null;
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
 // --- Daily Plan Generation ---
 export async function generateDailyContent(count: number = 15): Promise<StudyItem[]> {
+  const client = getClient();
+  if (!client) return [];
+
   const prompt = `Generate ${count} distinct, high-frequency English oral expressions, idioms, or useful sentences for a Chinese learner who wants to sound native in daily casual and professional settings. 
   Mix between single words/idioms (type='word') and full sentences (type='sentence').
   
@@ -59,6 +70,15 @@ export async function generateDailyContent(count: number = 15): Promise<StudyIte
 
 // --- Daily Quote Generation ---
 export async function generateDailyQuote(): Promise<DailyQuoteItem> {
+  const client = getClient();
+  if (!client) {
+    return {
+      english: "Pivot!",
+      chinese: "转！(Friends 经典台词)",
+      source: "Friends (Demo Mode)"
+    };
+  }
+
   const prompt = `Generate ONE inspiring or interesting English quote/idiom/slang from a famous movie, TV show (like Friends, Modern Family), or book.
   Return JSON: { "english": "...", "chinese": "...", "source": "..." }`;
 
@@ -98,6 +118,16 @@ export async function analyzeAudioResponse(
   currentTopic: string,
   history: {user: string, ai: string}[]
 ): Promise<AnalysisResult> {
+  const client = getClient();
+  if (!client) {
+    return {
+        userTranscript: "Error: No API Key",
+        betterVersion: "Please check API Key configuration.",
+        analysis: "系统未配置 API Key。",
+        score: 0,
+        replyText: "I cannot hear you without my API key."
+    };
+  }
   
   // Construct context from history
   const historyText = history.map(h => `AI: ${h.ai}\nUser: ${h.user}`).join('\n');

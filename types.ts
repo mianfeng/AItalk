@@ -29,6 +29,7 @@ export interface VocabularyItem extends StudyItem {
   addedAt: number;
   nextReviewAt: number;
   masteryLevel: number; // 0-5
+  lastReviewed?: number; // Timestamp of the last review session
 }
 
 export interface Scenario {
