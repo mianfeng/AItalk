@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
+import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check } from 'lucide-react';
 import { analyzeAudioResponse, generateInitialTopic, generateSpeech } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
-import { AnalysisResult } from '../types';
+import { AnalysisResult, ItemType } from '../types';
 
 interface ConversationModeProps {
   onExit: () => void;
+  onSaveVocab: (text: string, type: ItemType) => void;
 }
 
-export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) => {
+export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSaveVocab }) => {
   const [currentTopic, setCurrentTopic] = useState<string>("Loading...");
   const [history, setHistory] = useState<{user: string, ai: string}[]>([]);
   
@@ -16,6 +17,10 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
   const [state, setState] = useState<'idle' | 'recording' | 'processing' | 'reviewing'>('processing');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null); // 'topic' or 'better'
+  
+  // User Audio State
+  const [userAudioUrl, setUserAudioUrl] = useState<string | null>(null);
+  const userAudioRef = useRef<HTMLAudioElement>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -26,6 +31,11 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
         setCurrentTopic(topic);
         setState('idle');
     });
+    
+    // Cleanup audio URL on unmount
+    return () => {
+        if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
+    };
   }, []);
 
   const playTTS = async (text: string, id: string) => {
@@ -65,7 +75,11 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
             setState('processing');
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             
-            // Convert to Base64
+            // Create playable URL for user review
+            const audioUrl = URL.createObjectURL(audioBlob);
+            setUserAudioUrl(audioUrl);
+
+            // Convert to Base64 for API
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
@@ -101,8 +115,24 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
         setHistory(prev => [...prev, { user: analysis.userTranscript, ai: currentTopic }]);
         setCurrentTopic(analysis.replyText);
         setAnalysis(null);
+        if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
+        setUserAudioUrl(null);
         setState('idle');
     }
+  };
+
+  const playUserAudio = () => {
+      if (userAudioRef.current) {
+          userAudioRef.current.currentTime = 0;
+          userAudioRef.current.play();
+      }
+  };
+
+  const [savedChunks, setSavedChunks] = useState<Set<string>>(new Set());
+
+  const handleSaveChunk = (text: string) => {
+      onSaveVocab(text, 'word'); // Treating chunks as vocabulary items
+      setSavedChunks(prev => new Set(prev).add(text));
   };
 
   return (
@@ -189,36 +219,76 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
                           </div>
                       </div>
 
-                      <div className="p-6 space-y-6">
+                      <div className="p-6 space-y-8">
                           
-                          {/* User Said */}
+                          {/* User Said & Playback */}
                           <div>
-                              <div className="text-xs text-slate-500 mb-1">你说了:</div>
-                              <p className="text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800/50">
+                              <div className="text-xs text-slate-500 mb-2 flex justify-between items-center">
+                                  <span>你的录音</span>
+                                  {userAudioUrl && (
+                                      <button 
+                                        onClick={playUserAudio}
+                                        className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-[10px]"
+                                      >
+                                          <PlayCircle size={12} /> 重听原音
+                                      </button>
+                                  )}
+                              </div>
+                              <p className="text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800/50 italic mb-2">
                                   "{analysis.userTranscript}"
                               </p>
+                              {userAudioUrl && (
+                                  <audio ref={userAudioRef} src={userAudioUrl} className="hidden" />
+                              )}
+                              
+                              {/* Pronunciation Feedback */}
+                              <div className="mt-3 bg-purple-500/5 border border-purple-500/20 p-3 rounded-lg">
+                                  <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider mb-1">发音与语调</div>
+                                  <p className="text-sm text-purple-200/80 leading-relaxed">{analysis.pronunciation}</p>
+                              </div>
                           </div>
 
                           {/* Better Version */}
                           <div>
-                              <div className="text-xs text-emerald-500 mb-1 font-bold flex items-center gap-1">
-                                  <AlertCircle size={12} /> 地道表达:
+                              <div className="text-xs text-emerald-500 mb-2 font-bold flex items-center gap-1">
+                                  <AlertCircle size={12} /> 地道改写
                               </div>
-                              <div className="flex items-start gap-3">
+                              <div className="flex items-start gap-3 mb-3">
                                 <p className="text-lg text-emerald-100 font-medium">
                                     {analysis.betterVersion}
                                 </p>
                                 <button 
                                     onClick={() => playTTS(analysis.betterVersion, 'better')}
                                     disabled={!!playingId}
-                                    className="mt-1 text-emerald-600 hover:text-emerald-400 disabled:opacity-50"
+                                    className="mt-1 text-emerald-600 hover:text-emerald-400 disabled:opacity-50 shrink-0"
                                 >
                                     {playingId === 'better' ? <Loader2 size={16} className="animate-spin" /> : <Volume2 size={16} />}
                                 </button>
                               </div>
+
+                              {/* Chunks */}
+                              {analysis.chunks && analysis.chunks.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                      {analysis.chunks.map((chunk, idx) => (
+                                          <button
+                                            key={idx}
+                                            onClick={() => handleSaveChunk(chunk)}
+                                            disabled={savedChunks.has(chunk)}
+                                            className={`text-xs flex items-center gap-1 px-2 py-1.5 rounded-md border transition-colors ${
+                                                savedChunks.has(chunk)
+                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                            }`}
+                                          >
+                                              {savedChunks.has(chunk) ? <Check size={10} /> : <PlusCircle size={10} />}
+                                              {chunk}
+                                          </button>
+                                      ))}
+                                  </div>
+                              )}
                           </div>
 
-                          {/* Analysis */}
+                          {/* Grammar Analysis */}
                           <div className="bg-blue-900/10 border border-blue-500/20 p-4 rounded-xl">
                               <p className="text-sm text-blue-200 leading-relaxed">
                                   💡 {analysis.analysis}

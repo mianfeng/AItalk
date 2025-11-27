@@ -162,6 +162,8 @@ export async function analyzeAudioResponse(
         userTranscript: "Error: No API Key",
         betterVersion: "Please check API Key configuration.",
         analysis: "系统未配置 API Key。",
+        pronunciation: "N/A",
+        chunks: [],
         score: 0,
         replyText: "I cannot hear you without my API key."
     };
@@ -178,11 +180,13 @@ export async function analyzeAudioResponse(
 
     Task:
     1. Transcribe the user's audio input.
-    2. Analyze their grammar, pronunciation, and naturalness.
+    2. Analyze their grammar, and specifically their PRONUNCIATION and INTONATION.
     3. Provide a 'betterVersion' (Native speaker rewrite).
-    4. Provide 'analysis' in Chinese (What was wrong? Why is the better version better?).
-    5. Give a 'score' (0-100).
-    6. Generate 'replyText': The AI's next conversational response to keep the chat going.
+    4. Provide 'analysis' in Chinese (Focus on grammar/vocab errors).
+    5. Provide 'pronunciation' in Chinese (Focus on stress, rhythm, and intonation).
+    6. Extract 1-3 'chunks' (useful idioms/collocations) from the BETTER VERSION.
+    7. Give a 'score' (0-100).
+    8. Generate 'replyText': The AI's next conversational response to keep the chat going.
   `;
 
   try {
@@ -202,10 +206,12 @@ export async function analyzeAudioResponse(
             userTranscript: { type: Type.STRING },
             betterVersion: { type: Type.STRING },
             analysis: { type: Type.STRING },
+            pronunciation: { type: Type.STRING },
+            chunks: { type: Type.ARRAY, items: { type: Type.STRING } },
             score: { type: Type.NUMBER },
             replyText: { type: Type.STRING }
           },
-          required: ["userTranscript", "betterVersion", "analysis", "score", "replyText"]
+          required: ["userTranscript", "betterVersion", "analysis", "pronunciation", "chunks", "score", "replyText"]
         }
       }
     });
@@ -220,6 +226,8 @@ export async function analyzeAudioResponse(
         userTranscript: "(Error analyzing audio)",
         betterVersion: "Could not process.",
         analysis: "系统暂时无法处理音频，请重试。",
+        pronunciation: "无法分析",
+        chunks: [],
         score: 0,
         replyText: "Please try saying that again."
     };

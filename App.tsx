@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { VocabularyItem, StudyItem, DailyStats, BackupData } from './types';
+import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType } from './types';
 import { generateDailyContent } from './services/contentGen';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
@@ -137,6 +137,27 @@ const App: React.FC = () => {
     setVocabList(updatedList);
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + learned.length }));
     setMode('dashboard'); 
+  };
+
+  const handleAddVocab = (text: string, type: ItemType) => {
+    if (vocabList.some(v => v.text === text)) {
+      alert("该词汇已在您的列表中！");
+      return;
+    }
+
+    const newItem: VocabularyItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      text,
+      type,
+      translation: "用户添加", // Simplified for manual add
+      definition: "Saved from conversation.",
+      example: "",
+      addedAt: Date.now(),
+      nextReviewAt: Date.now(),
+      masteryLevel: 0
+    };
+
+    setVocabList(prev => [newItem, ...prev]);
   };
 
   const handleRestoreData = (data: BackupData) => {
@@ -300,7 +321,7 @@ const App: React.FC = () => {
 
         {/* VIEW: LIVE (Conversation Mode) */}
         {mode === 'live' && (
-            <ConversationMode onExit={() => setMode('dashboard')} />
+            <ConversationMode onExit={() => setMode('dashboard')} onSaveVocab={handleAddVocab} />
         )}
 
         {/* MODAL: SETTINGS */}

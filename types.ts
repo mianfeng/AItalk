@@ -60,6 +60,8 @@ export interface AnalysisResult {
   userTranscript: string;
   betterVersion: string;
   analysis: string; // Chinese explanation
+  pronunciation: string; // New: Specific feedback on intonation/pronunciation
+  chunks: string[]; // New: Useful phrases extracted from betterVersion
   score: number; // 1-100
   replyText: string; // AI's response to continue conversation
 }
