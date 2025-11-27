@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { VocabularyItem } from '../types';
-import { ArrowLeft, Volume2 } from 'lucide-react';
+import { ArrowLeft, Volume2, Loader2 } from 'lucide-react';
+import { generateSpeech } from '../services/contentGen';
+import { playAudioFromBase64 } from '../services/audioUtils';
 
 interface ReviewListProps {
   items: VocabularyItem[];
@@ -8,11 +10,25 @@ interface ReviewListProps {
 }
 
 export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
-  const playTTS = (text: string) => {
-    window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = 'en-US';
-    window.speechSynthesis.speak(speech);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const playTTS = async (text: string, id: string) => {
+    if (playingId) return;
+    setPlayingId(id);
+    try {
+        const base64 = await generateSpeech(text);
+        if (base64) {
+            await playAudioFromBase64(base64);
+        } else {
+            const speech = new SpeechSynthesisUtterance(text);
+            speech.lang = 'en-US';
+            window.speechSynthesis.speak(speech);
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setPlayingId(null);
+    }
   };
 
   return (
@@ -29,7 +45,7 @@ export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full pb-20">
+      <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full pb-20 custom-scrollbar">
         {items.length === 0 ? (
           <div className="text-center text-slate-500 mt-20">
             <p>今天还没有学习记录哦。</p>
@@ -39,10 +55,11 @@ export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
             {items.map((item) => (
               <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex gap-4">
                 <button 
-                  onClick={() => playTTS(item.text)}
-                  className="shrink-0 w-10 h-10 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-blue-400 transition-colors mt-1"
+                  onClick={() => playTTS(item.text, item.id)}
+                  disabled={!!playingId}
+                  className="shrink-0 w-10 h-10 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-blue-400 transition-colors mt-1 disabled:opacity-50"
                 >
-                  <Volume2 size={18} />
+                  {playingId === item.id ? <Loader2 size={18} className="animate-spin" /> : <Volume2 size={18} />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-start mb-1">
@@ -54,8 +71,13 @@ export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
                   <p className="text-emerald-400 text-sm font-medium mb-1">{item.translation}</p>
                   <p className="text-slate-500 text-xs line-clamp-2">{item.definition}</p>
                   
+                  {item.extra_info && (
+                      <p className="text-xs text-amber-500/80 mt-1">{item.extra_info}</p>
+                  )}
+
                   <div className="mt-3 pt-3 border-t border-slate-800/50">
                     <p className="text-sm text-slate-400 italic">"{item.example}"</p>
+                    {item.example_zh && <p className="text-xs text-slate-600 mt-1">{item.example_zh}</p>}
                   </div>
                 </div>
               </div>

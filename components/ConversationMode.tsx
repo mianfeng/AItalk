@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle } from 'lucide-react';
-import { analyzeAudioResponse, generateInitialTopic } from '../services/contentGen';
+import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
+import { analyzeAudioResponse, generateInitialTopic, generateSpeech } from '../services/contentGen';
+import { playAudioFromBase64 } from '../services/audioUtils';
 import { AnalysisResult } from '../types';
 
 interface ConversationModeProps {
@@ -14,6 +15,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
   // States: idle -> recording -> processing -> reviewing -> idle
   const [state, setState] = useState<'idle' | 'recording' | 'processing' | 'reviewing'>('processing');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null); // 'topic' or 'better'
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -26,11 +28,23 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
     });
   }, []);
 
-  const playTTS = (text: string) => {
-    window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = 'en-US';
-    window.speechSynthesis.speak(speech);
+  const playTTS = async (text: string, id: string) => {
+    if (playingId) return;
+    setPlayingId(id);
+    try {
+        const base64 = await generateSpeech(text);
+        if (base64) {
+            await playAudioFromBase64(base64);
+        } else {
+            const speech = new SpeechSynthesisUtterance(text);
+            speech.lang = 'en-US';
+            window.speechSynthesis.speak(speech);
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setPlayingId(null);
+    }
   };
 
   const startRecording = async () => {
@@ -84,10 +98,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
 
   const handleContinue = () => {
     if (analysis) {
-        // Add to history
         setHistory(prev => [...prev, { user: analysis.userTranscript, ai: currentTopic }]);
-        
-        // Update topic to the AI's reply
         setCurrentTopic(analysis.replyText);
         setAnalysis(null);
         setState('idle');
@@ -116,10 +127,11 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
                     {currentTopic}
                  </p>
                  <button 
-                    onClick={() => playTTS(currentTopic)}
-                    className="absolute right-4 top-4 p-2 text-slate-500 hover:text-blue-400 bg-slate-900/50 rounded-full transition-colors"
+                    onClick={() => playTTS(currentTopic, 'topic')}
+                    disabled={!!playingId}
+                    className="absolute right-4 top-4 p-2 text-slate-500 hover:text-blue-400 bg-slate-900/50 rounded-full transition-colors disabled:opacity-50"
                  >
-                     <Volume2 size={20} />
+                     {playingId === 'topic' ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
                  </button>
              </div>
           </div>
@@ -196,8 +208,12 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit }) =>
                                 <p className="text-lg text-emerald-100 font-medium">
                                     {analysis.betterVersion}
                                 </p>
-                                <button onClick={() => playTTS(analysis.betterVersion)} className="mt-1 text-emerald-600 hover:text-emerald-400">
-                                    <Volume2 size={16} />
+                                <button 
+                                    onClick={() => playTTS(analysis.betterVersion, 'better')}
+                                    disabled={!!playingId}
+                                    className="mt-1 text-emerald-600 hover:text-emerald-400 disabled:opacity-50"
+                                >
+                                    {playingId === 'better' ? <Loader2 size={16} className="animate-spin" /> : <Volume2 size={16} />}
                                 </button>
                               </div>
                           </div>

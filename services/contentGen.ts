@@ -1,7 +1,8 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
 
 const modelName = "gemini-2.5-flash";
+const ttsModelName = "gemini-2.5-flash-preview-tts";
 
 function getClient() {
   const apiKey = process.env.API_KEY;
@@ -12,23 +13,58 @@ function getClient() {
   return new GoogleGenAI({ apiKey });
 }
 
+// --- Text-to-Speech (Gemini) ---
+export async function generateSpeech(text: string): Promise<string | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  try {
+    const response = await client.models.generateContent({
+      model: ttsModelName,
+      contents: { parts: [{ text }] },
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Puck' } // Male voice
+          },
+        },
+      },
+    });
+    
+    // Extract base64 audio
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+  } catch (error) {
+    console.error("TTS generation failed:", error);
+    return null;
+  }
+}
+
 // --- Daily Plan Generation ---
 export async function generateDailyContent(count: number = 15): Promise<StudyItem[]> {
   const client = getClient();
   if (!client) return [];
 
-  const prompt = `Generate ${count} distinct, high-frequency English oral expressions, idioms, or useful sentences for a Chinese learner who wants to sound native in daily casual and professional settings. 
-  Mix between single words/idioms (type='word') and full sentences (type='sentence').
+  const prompt = `Generate ${count} distinct English oral expressions for a Chinese learner (B2/C1 level).
   
-  Required fields:
-  - text: The English expression.
-  - translation: The Chinese translation (meaning).
-  - definition: A simple English definition.
-  - example: A sentence using the term.
-  - pronunciation: IPA or simple phonetic spelling.
-  - type: 'word', 'sentence', or 'idiom'.
+  CRITICAL REQUIREMENTS:
+  1. DIFFICULTY: 40% of the words/idioms must be from CET-6, IELTS, or TOEFL vocabulary lists. The rest should be authentic daily slang or office expressions.
+  2. FIELDS: You must provide a 'translation' (Chinese meaning), 'definition' (English), 'example' (English), AND 'example_zh' (Chinese translation of the example).
+  3. EXTRA INFO: Provide 'extra_info' containing either word origin, part-of-speech variants, or usage nuances (in Chinese).
 
-  Focus on: Office small talk, expressing opinions, and modern daily life slang.`;
+  JSON Structure:
+  [
+    {
+      "text": "serendipity",
+      "translation": "意外发现珍奇事物的本领; 缘分",
+      "definition": "The occurrence of events by chance in a happy or beneficial way.",
+      "example": "We found this amazing restaurant by pure serendipity.",
+      "example_zh": "我们纯属偶然发现了这家很棒的餐厅。",
+      "type": "word",
+      "pronunciation": "/ˌser.ənˈdɪp.ə.t̬i/",
+      "extra_info": "Origin: Coined by Horace Walpole, suggested by The Three Princes of Serendip."
+    }
+  ]`;
 
   try {
     const response = await client.models.generateContent({
@@ -45,10 +81,12 @@ export async function generateDailyContent(count: number = 15): Promise<StudyIte
               translation: { type: Type.STRING },
               definition: { type: Type.STRING },
               example: { type: Type.STRING },
+              example_zh: { type: Type.STRING },
               type: { type: Type.STRING, enum: ["word", "sentence", "idiom"] },
-              pronunciation: { type: Type.STRING }
+              pronunciation: { type: Type.STRING },
+              extra_info: { type: Type.STRING }
             },
-            required: ["text", "translation", "definition", "example", "type"]
+            required: ["text", "translation", "definition", "example", "example_zh", "type"]
           }
         }
       }
@@ -139,7 +177,7 @@ export async function analyzeAudioResponse(
     ${historyText}
 
     Task:
-    1. Transcribe the user's audio input (contained in this request).
+    1. Transcribe the user's audio input.
     2. Analyze their grammar, pronunciation, and naturalness.
     3. Provide a 'betterVersion' (Native speaker rewrite).
     4. Provide 'analysis' in Chinese (What was wrong? Why is the better version better?).

@@ -21,8 +21,10 @@ export interface StudyItem {
   translation: string; // Chinese translation
   definition: string;
   example: string;
+  example_zh?: string; // New: Chinese translation of the example
   type: ItemType;
   pronunciation?: string;
+  extra_info?: string; // New: Origin, word usage notes, or synonyms
 }
 
 export interface VocabularyItem extends StudyItem {

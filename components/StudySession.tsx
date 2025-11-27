@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { StudyItem } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { generateSpeech } from '../services/contentGen';
+import { playAudioFromBase64 } from '../services/audioUtils';
 
 interface StudySessionProps {
   items: StudyItem[];
@@ -11,6 +13,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [mastered, setMastered] = useState<StudyItem[]>([]);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   // Guard against empty items
   if (!items || items.length === 0) {
@@ -23,7 +26,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
   }
 
   const currentItem = items[currentIndex];
-  // Safe calculation for progress
   const progress = items.length > 0 ? ((currentIndex) / items.length) * 100 : 0;
 
   const handleNext = (remembered: boolean) => {
@@ -41,13 +43,24 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
     }
   };
 
-  const playTTS = (text: string) => {
-    // Simple browser TTS
-    window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = 'en-US';
-    speech.rate = 0.9;
-    window.speechSynthesis.speak(speech);
+  const playTTS = async (text: string) => {
+    if (isPlaying) return;
+    setIsPlaying(true);
+    try {
+        const base64 = await generateSpeech(text);
+        if (base64) {
+            await playAudioFromBase64(base64);
+        } else {
+            // Fallback
+            const speech = new SpeechSynthesisUtterance(text);
+            speech.lang = 'en-US';
+            window.speechSynthesis.speak(speech);
+        }
+    } catch (e) {
+        console.error("Audio error", e);
+    } finally {
+        setIsPlaying(false);
+    }
   };
 
   if (!currentItem) return <div className="text-center p-10 text-slate-300">学习完成！</div>;
@@ -80,34 +93,46 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
              </div>
 
              {/* Back */}
-             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto">
-                 <div className="flex-1 flex flex-col items-center justify-center w-full">
+             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto custom-scrollbar">
+                 <div className="flex-1 flex flex-col items-center w-full pt-4">
                      <div className="flex items-center gap-2 mb-2">
                         <button 
                             onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
-                            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors shrink-0"
+                            disabled={isPlaying}
+                            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors shrink-0 disabled:opacity-50"
                         >
-                            <Volume2 size={20} />
+                            {isPlaying ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
                         </button>
                         <h3 className="text-xl font-bold text-slate-200 text-center">{currentItem.text}</h3>
                      </div>
                      
                      {/* Chinese Translation */}
-                     <p className="text-xl text-emerald-400 font-bold mb-4 text-center">{currentItem.translation}</p>
+                     <p className="text-xl text-emerald-400 font-bold mb-3 text-center">{currentItem.translation}</p>
                      
                      {/* English Definition */}
-                     <p className="text-sm text-slate-400 text-center mb-6 leading-relaxed px-2">
+                     <p className="text-sm text-slate-400 text-center mb-4 leading-relaxed px-2">
                         {currentItem.definition}
                      </p>
+                     
+                     {/* Extra Info (Origin/POS) */}
+                     {currentItem.extra_info && (
+                         <div className="w-full bg-slate-950/50 border border-slate-800 p-2 rounded-lg mb-4 text-xs text-slate-400 flex items-start gap-2">
+                            <Sparkles size={12} className="shrink-0 mt-0.5 text-amber-500" />
+                            <span>{currentItem.extra_info}</span>
+                         </div>
+                     )}
 
                      {/* Example Sentence */}
                      <div className="w-full bg-slate-800/50 p-4 rounded-xl border-l-4 border-blue-500 relative group/example">
-                        <p className="text-sm text-slate-300 italic pr-8">"{currentItem.example}"</p>
+                        <p className="text-sm text-slate-300 italic pr-8 mb-1">"{currentItem.example}"</p>
+                        {currentItem.example_zh && (
+                            <p className="text-xs text-slate-500">{currentItem.example_zh}</p>
+                        )}
                         <button 
                             onClick={(e) => { e.stopPropagation(); playTTS(currentItem.example); }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-500 hover:text-white transition-colors"
+                            className="absolute right-2 top-2 p-2 text-slate-500 hover:text-white transition-colors"
                         >
-                            <PlayCircle size={18} />
+                            <PlayCircle size={16} />
                         </button>
                      </div>
                  </div>

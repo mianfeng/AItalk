@@ -66,3 +66,29 @@ export function createBlob(data: Float32Array): Blob {
     mimeType: 'audio/pcm;rate=16000',
   };
 }
+
+/**
+ * Plays raw PCM audio (24kHz mono) from a base64 string.
+ * Used for Gemini TTS playback.
+ */
+export async function playAudioFromBase64(base64String: string): Promise<void> {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    const bytes = decode(base64String);
+    const buffer = await decodeAudioData(bytes, audioContext, 24000, 1);
+    
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start(0);
+
+    return new Promise((resolve) => {
+      source.onended = () => {
+        resolve();
+        audioContext.close();
+      };
+    });
+  } catch (error) {
+    console.error("Error playing audio:", error);
+  }
+}

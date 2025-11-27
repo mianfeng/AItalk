@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { DailyQuoteItem } from '../types';
-import { generateDailyQuote } from '../services/contentGen';
+import { generateDailyQuote, generateSpeech } from '../services/contentGen';
+import { playAudioFromBase64 } from '../services/audioUtils';
 import { Quote, Loader2, Volume2 } from 'lucide-react';
 
 export const DailyQuote: React.FC = () => {
   const [quote, setQuote] = useState<DailyQuoteItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
-    // Check localStorage first
     const today = new Date().toDateString();
     const saved = localStorage.getItem('lingua_quote');
     
@@ -28,12 +29,23 @@ export const DailyQuote: React.FC = () => {
     });
   }, []);
 
-  const playTTS = () => {
-    if (!quote) return;
-    window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(quote.english);
-    speech.lang = 'en-US';
-    window.speechSynthesis.speak(speech);
+  const playTTS = async () => {
+    if (!quote || playing) return;
+    setPlaying(true);
+    try {
+        const base64 = await generateSpeech(quote.english);
+        if (base64) {
+            await playAudioFromBase64(base64);
+        } else {
+            const speech = new SpeechSynthesisUtterance(quote.english);
+            speech.lang = 'en-US';
+            window.speechSynthesis.speak(speech);
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setPlaying(false);
+    }
   };
 
   if (loading) return (
@@ -59,8 +71,12 @@ export const DailyQuote: React.FC = () => {
                  <p className="text-xl font-serif text-slate-100 leading-relaxed italic">
                     "{quote.english}"
                  </p>
-                 <button onClick={playTTS} className="mt-1 text-slate-500 hover:text-amber-400 transition-colors">
-                     <Volume2 size={18} />
+                 <button 
+                    onClick={playTTS} 
+                    disabled={playing}
+                    className="mt-1 text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-50"
+                 >
+                     {playing ? <Loader2 size={18} className="animate-spin" /> : <Volume2 size={18} />}
                  </button>
             </div>
             
