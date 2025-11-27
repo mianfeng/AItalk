@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { StudyItem } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
-import { generateSpeech } from '../services/contentGen';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square } from 'lucide-react';
+import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
 
 interface StudySessionProps {
@@ -14,6 +14,19 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
   const [isFlipped, setIsFlipped] = useState(false);
   const [mastered, setMastered] = useState<StudyItem[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Pronunciation State
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'evaluating' | 'result'>('idle');
+  const [pronunciationResult, setPronunciationResult] = useState<{score: number, feedback: string} | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Reset function when moving to next card
+  const resetCardState = () => {
+      setIsFlipped(false);
+      setRecordingState('idle');
+      setPronunciationResult(null);
+  };
 
   // Guard against empty items
   if (!items || items.length === 0) {
@@ -33,7 +46,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
       setMastered(prev => [...prev, currentItem]);
     }
     
-    setIsFlipped(false);
+    resetCardState();
     if (currentIndex < items.length - 1) {
       setTimeout(() => setCurrentIndex(prev => prev + 1), 200);
     } else {
@@ -63,6 +76,53 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
     }
   };
 
+  const toggleRecording = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (recordingState === 'recording') {
+        // Stop
+        if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stop();
+        }
+    } else {
+        // Start
+        try {
+            setPronunciationResult(null);
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                setRecordingState('evaluating');
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const reader = new FileReader();
+                reader.readAsDataURL(audioBlob);
+                reader.onloadend = async () => {
+                    const base64String = (reader.result as string).split(',')[1];
+                    const result = await evaluatePronunciation(base64String, currentItem.text);
+                    setPronunciationResult(result);
+                    setRecordingState('result');
+                };
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+            setRecordingState('recording');
+        } catch (err) {
+            console.error("Mic failed", err);
+            alert("无法访问麦克风");
+        }
+    }
+  };
+
   if (!currentItem) return <div className="text-center p-10 text-slate-300">学习完成！</div>;
 
   return (
@@ -76,7 +136,9 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
        <div className="perspective-1000 w-full aspect-[4/5] md:aspect-[4/3] relative group shrink-0">
           <div 
             className={`w-full h-full transition-transform duration-500 transform-style-3d relative cursor-pointer ${isFlipped ? 'rotate-y-180' : ''}`}
-            onClick={() => setIsFlipped(!isFlipped)}
+            onClick={() => {
+                if(recordingState !== 'recording') setIsFlipped(!isFlipped);
+            }}
           >
              {/* Front */}
              <div className="absolute inset-0 backface-hidden bg-slate-800 border-2 border-slate-700 rounded-2xl flex flex-col items-center justify-center p-8 shadow-xl">
@@ -95,7 +157,8 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
              {/* Back */}
              <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto custom-scrollbar">
                  <div className="flex-1 flex flex-col items-center w-full pt-4">
-                     <div className="flex items-center gap-2 mb-2">
+                     <div className="flex items-center gap-3 mb-2">
+                        {/* TTS Button */}
                         <button 
                             onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
                             disabled={isPlaying}
@@ -103,8 +166,39 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, onComplete })
                         >
                             {isPlaying ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
                         </button>
+                        
                         <h3 className="text-xl font-bold text-slate-200 text-center">{currentItem.text}</h3>
+                        
+                        {/* Record / Score Button */}
+                        <button
+                            onClick={toggleRecording}
+                            className={`p-2 rounded-full transition-all shrink-0 relative ${
+                                recordingState === 'recording' 
+                                ? 'bg-red-500 text-white animate-pulse' 
+                                : (recordingState === 'evaluating' 
+                                    ? 'bg-slate-700 text-slate-400 cursor-wait'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
+                                )
+                            }`}
+                        >
+                            {recordingState === 'recording' ? <Square size={20} fill="currentColor" /> : 
+                             (recordingState === 'evaluating' ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />)}
+                        </button>
                      </div>
+                     
+                     {/* Score Display */}
+                     {recordingState === 'result' && pronunciationResult && (
+                         <div className="mb-3 animate-in fade-in zoom-in duration-300 flex flex-col items-center">
+                             <div className={`px-3 py-1 rounded-full text-xs font-bold mb-1 ${
+                                 pronunciationResult.score > 80 
+                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                                 : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                             }`}>
+                                 发音评分: {pronunciationResult.score}
+                             </div>
+                             <p className="text-[10px] text-slate-500">{pronunciationResult.feedback}</p>
+                         </div>
+                     )}
                      
                      {/* Chinese Translation */}
                      <p className="text-xl text-emerald-400 font-bold mb-3 text-center">{currentItem.translation}</p>

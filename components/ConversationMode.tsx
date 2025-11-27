@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check } from 'lucide-react';
+import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw } from 'lucide-react';
 import { analyzeAudioResponse, generateInitialTopic, generateSpeech } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
 import { AnalysisResult, ItemType } from '../types';
@@ -119,6 +119,14 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
         setUserAudioUrl(null);
         setState('idle');
     }
+  };
+
+  const handleTryAgain = () => {
+      // Clear analysis and audio, go back to idle to record again for the SAME topic
+      setAnalysis(null);
+      if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
+      setUserAudioUrl(null);
+      setState('idle');
   };
 
   const playUserAudio = () => {
@@ -298,7 +306,14 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
                       </div>
 
                       {/* Footer Action */}
-                      <div className="p-4 bg-slate-950 border-t border-slate-900 flex justify-end">
+                      <div className="p-4 bg-slate-950 border-t border-slate-900 flex justify-between items-center">
+                          <button
+                            onClick={handleTryAgain}
+                            className="text-slate-400 hover:text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors hover:bg-slate-900"
+                          >
+                              <RotateCcw size={16} /> 再试一次
+                          </button>
+                          
                           <button 
                             onClick={handleContinue}
                             className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors"

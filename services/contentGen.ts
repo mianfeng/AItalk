@@ -234,6 +234,57 @@ export async function analyzeAudioResponse(
   }
 }
 
+// --- Word/Sentence Pronunciation Scoring ---
+export async function evaluatePronunciation(
+  audioBase64: string,
+  targetText: string
+): Promise<{ score: number; feedback: string }> {
+  const client = getClient();
+  if (!client) return { score: 0, feedback: "API Key Missing" };
+
+  const prompt = `
+    Act as a strict pronunciation coach.
+    Target Text: "${targetText}"
+    
+    Task:
+    1. Listen to the user's audio.
+    2. Compare it with the target text.
+    3. Give a score (0-100).
+    4. Provide very brief, specific feedback in Chinese about phonemes or stress (max 15 words).
+  `;
+
+  try {
+    const response = await client.models.generateContent({
+      model: modelName,
+      contents: {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            score: { type: Type.NUMBER },
+            feedback: { type: Type.STRING }
+          },
+          required: ["score", "feedback"]
+        }
+      }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text);
+    }
+    return { score: 0, feedback: "Could not analyze" };
+  } catch (error) {
+    console.error("Pronunciation check failed", error);
+    return { score: 0, feedback: "Error" };
+  }
+}
+
 export async function generateInitialTopic(): Promise<string> {
     const topics = [
         "Tell me about a small win you had at work recently.",
