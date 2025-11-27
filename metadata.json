@@ -1,0 +1,7 @@
+{
+  "name": "LinguaFlow - AI 口语私教",
+  "description": "基于 Gemini Live API 的实时英语口语陪练。它能通过每日任务帮助你积累词汇，并在模拟对话中纠正你的发音和语法。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
