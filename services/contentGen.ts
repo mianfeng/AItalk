@@ -174,7 +174,7 @@ export async function analyzeAudioResponse(
   
   const prompt = `
     Context: The user is practicing spoken English. 
-    Current Topic/AI Question: "${currentTopic}"
+    Current Scenario/Context: "${currentTopic}"
     Conversation History:
     ${historyText}
 
@@ -285,13 +285,45 @@ export async function evaluatePronunciation(
   }
 }
 
+// --- Initial Topic Generation (Updated) ---
 export async function generateInitialTopic(): Promise<string> {
     const topics = [
-        "Tell me about a small win you had at work recently.",
-        "What's your favorite way to relax after a long day?",
-        "If you could travel anywhere tomorrow, where would you go?",
-        "What do you think about remote working?",
-        "Describe your favorite food to me."
+        "In the Supermarket",
+        "Job Interview",
+        "At the Airport",
+        "Ordering Coffee",
+        "Checking into a Hotel",
+        "Asking for Directions",
+        "Meeting a New Friend",
+        "Doctor's Appointment",
+        "Talking about Movies",
+        "Weekend Plans"
     ];
     return topics[Math.floor(Math.random() * topics.length)];
+}
+
+export async function generateTopicFromVocab(items: StudyItem[]): Promise<string> {
+  const client = getClient();
+  if (!client) return generateInitialTopic();
+
+  const words = items.map(i => i.text).join(", ");
+  // Prompt modified to request a short phrase instead of a full sentence/question
+  const prompt = `Generate a short, natural scenario title or setting phrase (2-6 words) that conceptually links these words: [${words}]. 
+  
+  Examples: 
+  - "At the coffee shop"
+  - "Solving a problem"
+  - "In a business meeting"
+  
+  Strictly output the phrase only. Do NOT generate a full sentence or a question.`;
+
+  try {
+    const response = await client.models.generateContent({
+        model: modelName,
+        contents: prompt
+    });
+    return response.text?.trim() || "Daily Conversation";
+  } catch (e) {
+    return "Daily Practice";
+  }
 }

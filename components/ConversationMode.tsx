@@ -1,21 +1,33 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw } from 'lucide-react';
-import { analyzeAudioResponse, generateInitialTopic, generateSpeech } from '../services/contentGen';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw, Target } from 'lucide-react';
+import { analyzeAudioResponse, generateInitialTopic, generateTopicFromVocab, generateSpeech } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
-import { AnalysisResult, ItemType } from '../types';
+import { AnalysisResult, ItemType, VocabularyItem } from '../types';
 
 interface ConversationModeProps {
   onExit: () => void;
   onSaveVocab: (text: string, type: ItemType) => void;
+  vocabList: VocabularyItem[]; // Added vocabList
 }
 
-export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSaveVocab }) => {
-  const [currentTopic, setCurrentTopic] = useState<string>("Loading...");
+export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSaveVocab, vocabList }) => {
+  const [currentTopic, setCurrentTopic] = useState<string>("Loading topic...");
   const [history, setHistory] = useState<{user: string, ai: string}[]>([]);
   
+  // Select target words for this session
+  const targetWords = useMemo(() => {
+    // Shuffle and pick 3. If empty, pick from a default list or handle gracefully.
+    const shuffled = [...vocabList].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 3);
+  }, []); // Run once on mount
+
   // States: idle -> recording -> processing -> reviewing -> idle
   const [state, setState] = useState<'idle' | 'recording' | 'processing' | 'reviewing'>('processing');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  
+  // Stores the "Better Version" from the PREVIOUS attempt when "Try Again" is clicked
+  const [lastBetterVersion, setLastBetterVersion] = useState<string | null>(null);
+
   const [playingId, setPlayingId] = useState<string | null>(null); // 'topic' or 'better'
   
   // User Audio State
@@ -30,17 +42,24 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
 
   // Init
   useEffect(() => {
-    generateInitialTopic().then(topic => {
+    const init = async () => {
+        let topic = "";
+        if (targetWords.length > 0) {
+            topic = await generateTopicFromVocab(targetWords);
+        } else {
+            topic = await generateInitialTopic();
+        }
         setCurrentTopic(topic);
         setState('idle');
-    });
+    };
+    init();
     
     // Cleanup audio URL on unmount
     return () => {
         if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
         audioCache.current.clear();
     };
-  }, []);
+  }, [targetWords]);
 
   const playTTS = async (text: string, id: string) => {
     if (playingId) return;
@@ -49,11 +68,13 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
         if (audioCache.current.has(text)) {
             await playAudioFromBase64(audioCache.current.get(text)!);
         } else {
+            // Try Gemini TTS first for quality
             const base64 = await generateSpeech(text);
             if (base64) {
                 audioCache.current.set(text, base64);
                 await playAudioFromBase64(base64);
             } else {
+                // Fallback to browser TTS (Faster/Offline)
                 const speech = new SpeechSynthesisUtterance(text);
                 speech.lang = 'en-US';
                 window.speechSynthesis.speak(speech);
@@ -61,6 +82,9 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
         }
     } catch (e) {
         console.error(e);
+        // Fallback safety
+        const speech = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(speech);
     } finally {
         setPlayingId(null);
     }
@@ -124,6 +148,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
         setHistory(prev => [...prev, { user: analysis.userTranscript, ai: currentTopic }]);
         setCurrentTopic(analysis.replyText);
         setAnalysis(null);
+        setLastBetterVersion(null); // Clear previous help
         if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
         setUserAudioUrl(null);
         setState('idle');
@@ -131,6 +156,11 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
   };
 
   const handleTryAgain = () => {
+      // Save the better version so the user can see it while recording again
+      if (analysis?.betterVersion) {
+          setLastBetterVersion(analysis.betterVersion);
+      }
+      
       // Clear analysis and audio, go back to idle to record again for the SAME topic
       setAnalysis(null);
       if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
@@ -148,7 +178,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
   const [savedChunks, setSavedChunks] = useState<Set<string>>(new Set());
 
   const handleSaveChunk = (text: string) => {
-      onSaveVocab(text, 'word'); // Treating chunks as vocabulary items
+      onSaveVocab(text, 'word'); 
       setSavedChunks(prev => new Set(prev).add(text));
   };
 
@@ -156,21 +186,38 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
     <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
       
       {/* Header */}
-      <div className="px-6 py-4 shrink-0 border-b border-slate-900 flex justify-between items-center bg-slate-950 sticky top-0 z-10">
+      <div className="px-4 py-3 shrink-0 border-b border-slate-900 bg-slate-950 sticky top-0 z-10 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="bg-blue-500/10 text-blue-400 p-1.5 rounded-lg"><Mic size={18} /></span>
-            <span className="font-semibold text-sm md:text-base">模拟对话练习</span>
+            <span className="font-semibold text-sm">模拟对话练习</span>
           </div>
-          <button onClick={onExit} className="text-slate-500 hover:text-slate-300 text-xs md:text-sm bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">结束练习</button>
+          <button onClick={onExit} className="text-slate-500 hover:text-white text-xs bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">结束</button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center p-4 md:p-6 max-w-3xl mx-auto w-full gap-6 md:gap-8 pb-20">
+      <div className="flex-1 flex flex-col items-center p-4 max-w-3xl mx-auto w-full gap-6 pb-20">
           
+          {/* Target Vocabulary Display */}
+          {targetWords.length > 0 && (
+              <div className="w-full bg-slate-900/50 border border-indigo-500/20 rounded-xl p-3">
+                  <div className="flex items-center gap-2 mb-2 text-indigo-400 text-xs font-bold uppercase tracking-wide">
+                      <Target size={14} /> 本轮目标词汇
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                      {targetWords.map((item, i) => (
+                          <div key={i} className="bg-slate-950 border border-slate-800 px-2 py-1 rounded text-xs flex items-center gap-2">
+                              <span className="text-slate-200 font-medium">{item.text}</span>
+                              <span className="text-slate-500 border-l border-slate-800 pl-2">{item.translation}</span>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          )}
+
           {/* AI Topic Bubble */}
           <div className="w-full">
              <div className="text-xs text-slate-500 mb-2 uppercase tracking-wider font-bold">AI 话题 / 问题</div>
              <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 relative">
-                 <p className="text-lg md:text-2xl font-medium text-slate-100 pr-10 leading-relaxed">
+                 <p className="text-lg md:text-xl font-medium text-slate-100 pr-10 leading-relaxed">
                     {currentTopic}
                  </p>
                  <button 
@@ -185,13 +232,31 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
 
           {/* Recording Interface (Only visible when not reviewing) */}
           {state !== 'reviewing' && (
-              <div className="flex-1 flex flex-col items-center justify-center min-h-[200px]">
+              <div className="flex-1 flex flex-col items-center justify-center min-h-[200px] w-full">
+                  
+                  {/* Previous Advice (Visible during Retry) */}
+                  {lastBetterVersion && state === 'idle' && (
+                      <div className="mb-6 w-full max-w-md bg-emerald-900/20 border border-emerald-500/20 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
+                          <div className="text-emerald-500 text-xs font-bold mb-2 flex items-center gap-1">
+                              <Sparkles size={12} /> 参考表达 (建议照着读)
+                          </div>
+                          <p className="text-emerald-100/90 text-sm leading-relaxed">{lastBetterVersion}</p>
+                          <button 
+                            onClick={() => playTTS(lastBetterVersion, 'prev_better')}
+                            disabled={!!playingId}
+                            className="mt-2 text-xs flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+                           >
+                              <Volume2 size={12} /> 播放示范
+                          </button>
+                      </div>
+                  )}
+
                   {state === 'processing' ? (
                       <div className="flex flex-col items-center gap-4 animate-pulse">
                           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
                               <RefreshCcw className="animate-spin text-slate-400" />
                           </div>
-                          <p className="text-slate-400 text-sm">正在分析你的口语...</p>
+                          <p className="text-slate-400 text-sm">正在分析...</p>
                       </div>
                   ) : (
                       <div className="flex flex-col items-center gap-6">

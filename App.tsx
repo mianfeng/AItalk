@@ -398,7 +398,11 @@ const App: React.FC = () => {
 
         {/* VIEW: LIVE (Conversation Mode) */}
         {mode === 'live' && (
-            <ConversationMode onExit={() => setMode('dashboard')} onSaveVocab={handleAddVocab} />
+            <ConversationMode 
+                onExit={() => setMode('dashboard')} 
+                onSaveVocab={handleAddVocab} 
+                vocabList={vocabList} // Pass full list for context gen
+            />
         )}
 
         {/* MODAL: SETTINGS */}
