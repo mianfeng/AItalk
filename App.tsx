@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType, SessionResult, ConversationSession } from './types';
-import { generateDailyContent } from './services/contentGen';
+import { generateDailyContent, generateInitialTopic, generateTopicFromVocab } from './services/contentGen';
+import { getTotalLocalItemsCount } from './services/localRepository';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2 } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'review';
 
@@ -31,13 +32,16 @@ const App: React.FC = () => {
     return { date: today, itemsLearned: 0, completedSpeaking: false };
   });
 
+  // Conversation Persistence State
+  const [activeSession, setActiveSession] = useState<ConversationSession | null>(() => {
+      const saved = localStorage.getItem('lingua_conversation');
+      return saved ? JSON.parse(saved) : null;
+  });
+
   const [todaysItems, setTodaysItems] = useState<StudyItem[]>([]);
   // Persistence for Study Index
   const [studyIndex, setStudyIndex] = useState(0); 
   const [isGenerating, setIsGenerating] = useState(false);
-
-  // Persistence for Conversation Mode
-  const [conversationSession, setConversationSession] = useState<ConversationSession | null>(null);
 
   // Global Audio Cache for Study Session
   const audioCache = useRef<Map<string, string>>(new Map());
@@ -50,6 +54,14 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('lingua_stats', JSON.stringify(dailyStats));
   }, [dailyStats]);
+
+  useEffect(() => {
+    if (activeSession) {
+        localStorage.setItem('lingua_conversation', JSON.stringify(activeSession));
+    } else {
+        localStorage.removeItem('lingua_conversation');
+    }
+  }, [activeSession]);
 
   // Backup Reminder Logic
   useEffect(() => {
@@ -80,6 +92,8 @@ const App: React.FC = () => {
       return addedDate === todayStr || reviewDate === todayStr;
   });
 
+  const totalRepoCount = getTotalLocalItemsCount();
+
   // --- Handlers ---
 
   const startDailyPlan = async () => {
@@ -92,28 +106,63 @@ const App: React.FC = () => {
     setIsGenerating(true);
     try {
         const now = Date.now();
-        // Pick items to review (older than 24h and not mastered)
-        // Mark them as 'saved' because they are already in our collection
-        const reviewItems = vocabList
-            .filter(v => v.masteryLevel < 5 && (now - v.addedAt > 86400000))
-            .sort(() => 0.5 - Math.random())
-            .slice(0, 5)
-            .map(v => ({ ...v, saved: true }));
+        const ONE_DAY = 86400000;
+        
+        // 1. Identify "Items to Review" (Review Queue)
+        // Criteria A: Studied Yesterday (Reinforce Memory)
+        const yesterdayStr = new Date(now - ONE_DAY).toDateString();
+        const yesterdayItems = vocabList.filter(v => {
+            const added = new Date(v.addedAt).toDateString();
+            const reviewed = v.lastReviewed ? new Date(v.lastReviewed).toDateString() : '';
+            return added === yesterdayStr || reviewed === yesterdayStr;
+        });
 
-        // Generate new items
-        // Pass existing list to avoid duplicates
-        const countToGenerate = 15; 
+        // Criteria B: Mastery Level < 3 (Needs Review / Hard items)
+        const weakItems = vocabList.filter(v => 
+            v.masteryLevel < 3 && 
+            !yesterdayItems.includes(v) &&
+            (now - v.addedAt > ONE_DAY)
+        );
+
+        // Selection Logic: 50% Review, 50% New
+        const reviewQuota = 10;
+        let selectedReviewItems: VocabularyItem[] = [];
+
+        // Add all from yesterday (up to quota)
+        selectedReviewItems = [...selectedReviewItems, ...yesterdayItems];
+        
+        // Fill remaining quota with weak items
+        if (selectedReviewItems.length < reviewQuota) {
+            const needed = reviewQuota - selectedReviewItems.length;
+            const shuffledWeak = weakItems.sort(() => 0.5 - Math.random());
+            selectedReviewItems = [...selectedReviewItems, ...shuffledWeak.slice(0, needed)];
+        }
+
+        // If still need more, pick random older items
+        if (selectedReviewItems.length < reviewQuota) {
+             const needed = reviewQuota - selectedReviewItems.length;
+             const others = vocabList.filter(v => !selectedReviewItems.includes(v) && (now - v.addedAt > ONE_DAY));
+             const shuffledOthers = others.sort(() => 0.5 - Math.random());
+             selectedReviewItems = [...selectedReviewItems, ...shuffledOthers.slice(0, needed)];
+        }
+
+        const reviewSessionItems: StudyItem[] = selectedReviewItems.map(v => ({ ...v, saved: true }));
+
+        // 2. Generate "New Items"
+        const newQuota = 20 - reviewSessionItems.length; 
+        const countToGenerate = Math.max(10, newQuota); 
+        
         const generatedItems = await generateDailyContent(countToGenerate, vocabList);
-        const newItems = generatedItems.map(item => ({ ...item, saved: false }));
+        const newSessionItems = generatedItems.map(item => ({ ...item, saved: false }));
 
-        if (newItems.length === 0 && reviewItems.length === 0) {
-            alert("生成学习内容失败，请检查网络或稍后重试。");
+        if (newSessionItems.length === 0 && reviewSessionItems.length === 0) {
+            alert("词库已学完，或者没有需要复习的内容！");
+            setIsGenerating(false);
             return;
         }
 
-        setTodaysItems([...reviewItems, ...newItems]);
-        setStudyIndex(0); // Reset index for new session
-        
+        setTodaysItems([...reviewSessionItems, ...newSessionItems]);
+        setStudyIndex(0); 
         audioCache.current.clear(); 
         
         setMode('study');
@@ -125,60 +174,122 @@ const App: React.FC = () => {
     }
   };
 
+  const initConversation = async () => {
+      // If session exists, resume it
+      if (activeSession) {
+          setMode('live');
+          return;
+      }
+
+      // Generate NEW session
+      setIsGenerating(true);
+      try {
+          // Logic: 1 Word + 2 Sentences/Idioms
+          const poolWords = vocabList.filter(v => v.type === 'word');
+          const poolSentences = vocabList.filter(v => v.type === 'sentence' || v.type === 'idiom');
+          
+          let target: VocabularyItem[] = [];
+
+          // Try to pick 1 word
+          if (poolWords.length > 0) {
+              const randomWord = poolWords[Math.floor(Math.random() * poolWords.length)];
+              target.push(randomWord);
+          }
+
+          // Try to pick 2 sentences
+          if (poolSentences.length > 0) {
+              const shuffledSentences = [...poolSentences].sort(() => 0.5 - Math.random());
+              target.push(...shuffledSentences.slice(0, 2));
+          }
+
+          // Fallback: If we didn't get 3 items, fill up with whatever we have left from the OTHER pool
+          // (e.g. user only has words, no sentences)
+          if (target.length < 3) {
+              const usedIds = new Set(target.map(t => t.id));
+              const remaining = vocabList.filter(v => !usedIds.has(v.id)).sort(() => 0.5 - Math.random());
+              target.push(...remaining.slice(0, 3 - target.length));
+          }
+
+          // Generate Topic
+          let topic = "Daily Conversation";
+          if (target.length > 0) {
+              topic = await generateTopicFromVocab(target);
+          } else {
+              topic = await generateInitialTopic();
+          }
+
+          const newSession: ConversationSession = {
+              topic,
+              targetWords: target,
+              history: [],
+              lastUpdated: Date.now()
+          };
+
+          setActiveSession(newSession);
+          setMode('live');
+
+      } catch (e) {
+          console.error("Failed to init conversation", e);
+          alert("启动对话失败，请检查网络或配置");
+      } finally {
+          setIsGenerating(false);
+      }
+  };
+
+  const handleConversationUpdate = (updatedSession: ConversationSession) => {
+      setActiveSession(updatedSession);
+  };
+
+  const handleEndConversation = () => {
+      if(confirm("确定要结束当前话题吗？进度将不会保存，下次将开启新话题。")) {
+          setActiveSession(null);
+          setMode('dashboard');
+      }
+  };
+
   const handleStudyProgress = (index: number) => {
       setStudyIndex(index);
   };
 
   const handleStudyComplete = (results: SessionResult[]) => {
     const now = Date.now();
-    let newItemsCount = 0;
-
     const updatedVocabList = [...vocabList];
 
     results.forEach(({ item, remembered }) => {
-        // CASE 1: Item is COLLECTED (Saved)
         if (item.saved) {
             const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
             
             if (existingIndex >= 0) {
-                // Update existing item
                 const existing = updatedVocabList[existingIndex];
                 updatedVocabList[existingIndex] = {
                     ...existing,
                     lastReviewed: now,
-                    nextReviewAt: now + 86400000, // Simple SRS: +1 day for now
-                    // If remembered, increase level. If not, reset to 1 or keep same?
+                    nextReviewAt: now + 86400000,
                     masteryLevel: remembered ? Math.min(5, existing.masteryLevel + 1) : Math.max(1, existing.masteryLevel - 1)
                 };
             } else {
-                // Add new item
                 updatedVocabList.unshift({
                     ...item,
                     addedAt: now,
                     lastReviewed: now,
                     nextReviewAt: now + 86400000,
-                    masteryLevel: remembered ? 1 : 0 // If mastered immediately, Lv1. If failed, Lv0.
+                    masteryLevel: remembered ? 1 : 0
                 });
-                newItemsCount++;
             }
         } 
-        // CASE 2: Item is NOT COLLECTED
         else {
-            // If it existed in the list but user un-collected it, remove it.
             const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
             if (existingIndex >= 0) {
                 updatedVocabList.splice(existingIndex, 1);
             }
-            // If it was new, we simply don't add it.
         }
     });
 
     setVocabList(updatedVocabList);
-    // Count all processed items towards daily goal, regardless of result
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
-    setTodaysItems([]); // Clear current session
+    setTodaysItems([]); 
     setStudyIndex(0);
-    audioCache.current.clear(); // Clear audio cache
+    audioCache.current.clear(); 
     setMode('dashboard'); 
   };
 
@@ -192,7 +303,7 @@ const App: React.FC = () => {
       id: Math.random().toString(36).substr(2, 9),
       text,
       type,
-      translation: "用户添加", // Simplified for manual add
+      translation: "用户添加", 
       definition: "Saved from conversation.",
       example: "",
       addedAt: Date.now(),
@@ -202,15 +313,6 @@ const App: React.FC = () => {
     };
 
     setVocabList(prev => [newItem, ...prev]);
-  };
-
-  const handleConversationUpdate = (session: ConversationSession) => {
-      setConversationSession(session);
-  };
-
-  const handleEndConversation = () => {
-      setConversationSession(null);
-      setMode('dashboard');
   };
 
   const handleRestoreData = (data: BackupData) => {
@@ -266,7 +368,13 @@ const App: React.FC = () => {
               
               {/* Daily Progress / Action Cards (Consolidated) */}
               <div className="w-full mb-6 md:mb-8 shrink-0">
-                  <h2 className="text-xl md:text-2xl font-bold text-white mb-4">今日练习</h2>
+                  <div className="flex justify-between items-end mb-4">
+                      <h2 className="text-xl md:text-2xl font-bold text-white">今日练习</h2>
+                      <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium bg-emerald-950/30 px-3 py-1 rounded-full border border-emerald-900/50">
+                          <BarChart2 size={14} />
+                          <span>今日已学: {dailyStats.itemsLearned}</span>
+                      </div>
+                  </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       
@@ -284,7 +392,7 @@ const App: React.FC = () => {
                              <div className={`p-3 rounded-2xl ${dailyStats.itemsLearned >= 15 && !isSessionActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400 group-hover:text-emerald-400 group-hover:bg-slate-950 transition-colors'}`}>
                                 <Book size={24} />
                              </div>
-                             {isGenerating ? (
+                             {isGenerating && !activeSession ? ( // Only spin if generating vocab
                                  <RefreshCw className="animate-spin text-slate-500" />
                              ) : (
                                  <div className="bg-slate-950/50 p-2 rounded-full text-slate-500 group-hover:text-white transition-colors">
@@ -298,9 +406,7 @@ const App: React.FC = () => {
                                 {isSessionActive ? "继续学习" : "单词学习"}
                              </div>
                              
-                             <div className="h-5">
-                                {/* Removed Progress: x/15 text as requested */}
-                             </div>
+                             <div className="h-5"></div>
 
                              {isSessionActive && (
                                  <div className="mt-3 text-xs bg-emerald-500/10 text-emerald-400 inline-block px-2 py-1 rounded border border-emerald-500/20">
@@ -318,8 +424,13 @@ const App: React.FC = () => {
 
                       {/* Right Card: Oral Practice */}
                       <button 
-                        onClick={() => setMode('live')}
-                        className="text-left p-5 rounded-3xl bg-gradient-to-br from-blue-900/20 to-slate-900 border border-blue-500/20 hover:border-blue-500/40 hover:from-blue-900/30 transition-all relative overflow-hidden group"
+                        onClick={initConversation}
+                        disabled={isGenerating}
+                        className={`text-left p-5 rounded-3xl bg-gradient-to-br from-blue-900/20 to-slate-900 border transition-all relative overflow-hidden group ${
+                            activeSession 
+                            ? 'border-blue-500/40 from-blue-900/40' 
+                            : 'border-blue-500/20 hover:border-blue-500/40 hover:from-blue-900/30'
+                        }`}
                       >
                          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
 
@@ -328,17 +439,19 @@ const App: React.FC = () => {
                                 <Mic size={24} />
                              </div>
                              <div className="bg-slate-950/50 p-2 rounded-full text-slate-500 group-hover:text-white transition-colors">
-                                 <ArrowRight size={16} />
+                                 {isGenerating ? <Loader2 className="animate-spin" size={16} /> : <ArrowRight size={16} />}
                              </div>
                          </div>
                          
                          <div className="relative z-10">
                              <div className="text-3xl font-bold text-slate-100 mb-1">
-                                 {conversationSession ? "继续实战" : "口语实战"}
+                                 {activeSession ? "继续对话" : "口语实战"}
                              </div>
-                             <p className="text-sm text-slate-500">模拟真实对话场景</p>
+                             <p className="text-sm text-slate-500 truncate">
+                                 {activeSession ? `话题: ${activeSession.topic}` : "模拟真实对话场景"}
+                             </p>
                              <div className="mt-3 text-xs text-blue-300/60 flex items-center gap-1">
-                                 {conversationSession ? '恢复上一次对话' : '随时开始 · 智能纠音'}
+                                 {activeSession ? "点击恢复进度" : "随时开始 · 智能纠音"}
                              </div>
                          </div>
                       </button>
@@ -410,15 +523,13 @@ const App: React.FC = () => {
         )}
 
         {/* VIEW: LIVE (Conversation Mode) */}
-        {mode === 'live' && (
+        {mode === 'live' && activeSession && (
             <ConversationMode 
-                vocabList={vocabList} // Pass full list for context gen
+                session={activeSession}
+                onUpdate={handleConversationUpdate}
+                onEndSession={handleEndConversation}
+                onBack={() => setMode('dashboard')}
                 onSaveVocab={handleAddVocab} 
-                
-                initialSession={conversationSession}
-                onUpdateSession={handleConversationUpdate}
-                onLeave={() => setMode('dashboard')}
-                onEnd={handleEndConversation}
             />
         )}
 
@@ -429,6 +540,7 @@ const App: React.FC = () => {
             vocabList={vocabList}
             dailyStats={dailyStats}
             onRestore={handleRestoreData}
+            totalRepoCount={totalRepoCount}
         />
 
         {/* BACKUP REMINDER BANNER */}

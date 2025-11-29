@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { X, Download, FileJson, FileSpreadsheet, Upload, AlertTriangle, CheckCircle, ArrowLeft, Volume2 } from 'lucide-react';
+import { X, Download, FileJson, FileSpreadsheet, Upload, AlertTriangle, CheckCircle, ArrowLeft, Volume2, PieChart, Star } from 'lucide-react';
 import { VocabularyItem, DailyStats, BackupData } from '../types';
 
 interface SettingsModalProps {
@@ -8,6 +8,7 @@ interface SettingsModalProps {
   vocabList: VocabularyItem[];
   dailyStats: DailyStats;
   onRestore: (data: BackupData) => void;
+  totalRepoCount: number;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -15,13 +16,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose, 
   vocabList, 
   dailyStats,
-  onRestore
+  onRestore,
+  totalRepoCount
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [viewMode, setViewMode] = useState<'menu' | 'list'>('menu');
 
   if (!show) return null;
+
+  // Calculate Stats
+  const learnedCount = vocabList.filter(v => v.masteryLevel > 1).length;
+  // Calculate percentage of total repo that is mastered/learned
+  // Avoid division by zero if repo is empty for some reason
+  const learnedPercentage = totalRepoCount > 0 ? Math.round((learnedCount / totalRepoCount) * 100) : 0;
 
   // --- Export Logic ---
 
@@ -142,21 +150,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           
           {viewMode === 'menu' ? (
               <div className="space-y-6">
-                {/* Stats Summary - CLICKABLE */}
+                
+                {/* Stats Card */}
+                <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-3 text-slate-400 text-xs font-bold uppercase tracking-wider">
+                        <PieChart size={14} /> 学习进度
+                    </div>
+                    <div className="flex justify-between items-end mb-2">
+                        <div className="text-3xl font-bold text-emerald-400">{learnedCount}</div>
+                        <div className="text-sm text-slate-500 font-mono mb-1">/ {totalRepoCount} 词库总量</div>
+                    </div>
+                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, learnedPercentage)}%` }} />
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-2 text-right">
+                        已掌握 (Lv {'>'} 1)
+                    </p>
+                </div>
+
+                {/* Collection Button */}
                 <button 
                     onClick={() => setViewMode('list')}
-                    className="w-full bg-slate-800/50 hover:bg-slate-800 rounded-xl p-4 border border-slate-700 transition-colors text-left group"
+                    className="w-full bg-indigo-900/20 hover:bg-indigo-900/30 rounded-xl p-4 border border-indigo-500/30 transition-colors text-left group flex justify-between items-center"
                 >
-                    <div className="flex justify-between items-center">
-                        <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">当前存储</div>
-                        <ArrowLeft size={16} className="text-slate-600 rotate-180 group-hover:text-slate-400" />
+                    <div>
+                        <div className="text-xs text-indigo-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                            <Star size={12} fill="currentColor" /> 我的收藏
+                        </div>
+                        <div className="text-xl font-bold text-indigo-100">
+                            {vocabList.length} <span className="text-sm font-normal text-indigo-300/70">个单词/句子</span>
+                        </div>
                     </div>
-                    <div className="text-2xl font-bold text-white">{vocabList.length} <span className="text-base font-normal text-slate-400">个单词/句子</span></div>
-                    <p className="text-[10px] text-slate-600 mt-2">点击查看列表</p>
+                    <ArrowLeft size={18} className="text-indigo-400 rotate-180 group-hover:translate-x-1 transition-transform" />
                 </button>
 
                 <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-slate-400">导出数据 (备份)</h3>
+                    <h3 className="text-sm font-semibold text-slate-400">数据备份与导出</h3>
                     <button 
                         onClick={handleExportJSON}
                         className="w-full flex items-center justify-between p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all group"

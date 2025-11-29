@@ -1,5 +1,3 @@
-import { Blob } from '@google/genai';
-
 /**
  * Decodes base64 string to raw bytes.
  */
@@ -14,7 +12,7 @@ export function decode(base64: string): Uint8Array {
 }
 
 /**
- * Encodes raw bytes to base64 string.
+ * Encodes Uint8Array to base64 string.
  */
 export function encode(bytes: Uint8Array): string {
   let binary = '';
@@ -50,14 +48,12 @@ export async function decodeAudioData(
 }
 
 /**
- * Creates a PCM blob from Float32 microphone input.
- * Converts Float32 to Int16 for the API (16kHz).
+ * Creates a PCM audio blob for Gemini Live API from Float32Array (AudioBuffer channel data).
  */
-export function createBlob(data: Float32Array): Blob {
+export function createBlob(data: Float32Array): { data: string; mimeType: string } {
   const l = data.length;
   const int16 = new Int16Array(l);
   for (let i = 0; i < l; i++) {
-    // Clamp values to -1.0 to 1.0 before converting to prevent overflow wrapping
     const s = Math.max(-1, Math.min(1, data[i]));
     int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
   }

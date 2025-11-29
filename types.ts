@@ -1,18 +1,3 @@
-export interface Message {
-  id: string;
-  role: 'user' | 'model';
-  text: string;
-  timestamp: number;
-  feedback?: Feedback; // Optional feedback attached to a model's turn
-}
-
-export interface Feedback {
-  original: string;
-  better: string;
-  analysis: string;
-  chunks: string[];
-}
-
 export type ItemType = 'word' | 'sentence' | 'idiom';
 
 export interface StudyItem {
@@ -35,35 +20,13 @@ export interface VocabularyItem extends StudyItem {
   lastReviewed?: number; // Timestamp of the last review session
 }
 
-export interface ConversationSession {
-  topic: string;
-  targetWords: VocabularyItem[];
-  history: {user: string, ai: string}[];
-  lastBetterVersion: string | null;
-}
-
-export interface Scenario {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  systemInstruction: string;
-}
-
-export enum ConnectionState {
-  DISCONNECTED = 'DISCONNECTED',
-  CONNECTING = 'CONNECTING',
-  CONNECTED = 'CONNECTED',
-  ERROR = 'ERROR',
-}
-
 export interface DailyStats {
   date: string;
   itemsLearned: number;
   completedSpeaking: boolean;
 }
 
-// New Types for Turn-Based Conversation
+// Conversation Mode Types
 export interface AnalysisResult {
   userTranscript: string;
   betterVersion: string;
@@ -77,7 +40,7 @@ export interface AnalysisResult {
 export interface DailyQuoteItem {
   english: string;
   chinese: string;
-  source: string; // e.g., "Friends S01E02" or "The Great Gatsby"
+  source: string;
 }
 
 // Data Export/Import Structure
@@ -91,4 +54,43 @@ export interface BackupData {
 export interface SessionResult {
     item: StudyItem;
     remembered: boolean;
+}
+
+// Gemini Live / Scenario Types
+
+export interface Scenario {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  systemInstruction: string;
+}
+
+export enum ConnectionState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  ERROR = 'error',
+}
+
+export interface Feedback {
+  original: string;
+  better: string;
+  analysis: string;
+  chunks: string[];
+}
+
+export interface Message {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: number;
+  feedback?: Feedback;
+}
+
+export interface ConversationSession {
+  topic: string;
+  history: {user: string, ai: string}[];
+  targetWords: VocabularyItem[];
+  lastUpdated: number;
 }

@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { StudyItem, AnalysisResult, DailyQuoteItem, VocabularyItem } from "../types";
+import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
+import { getLocalContent } from "./localRepository";
 
 const modelName = "gemini-2.5-flash";
 const ttsModelName = "gemini-2.5-flash-preview-tts";
@@ -40,92 +41,20 @@ export async function generateSpeech(text: string): Promise<string | null> {
   }
 }
 
-// --- Daily Plan Generation ---
-export async function generateDailyContent(count: number = 15, existingItems: VocabularyItem[] = []): Promise<StudyItem[]> {
-  const client = getClient();
-  if (!client) return [];
+// --- Daily Plan Generation (Local Only) ---
+export async function generateDailyContent(count: number = 15, currentVocabList: { text: string }[] = []): Promise<StudyItem[]> {
+  // 1. Create a Set of existing words to avoid duplicates
+  const existingSet = new Set(currentVocabList.map(v => v.text));
 
-  // Pick ~50 random existing words to exclude to prevent duplicates (Prompt size limit)
-  const excludeList = existingItems
-      .sort(() => 0.5 - Math.random())
-      .slice(0, 50)
-      .map(i => i.text)
-      .join(", ");
-
-  // Randomly pick a theme to ensure variety
-  const themes = ["Business & Office", "Travel & Culture", "Daily Emotions", "Technology", "Food & Dining", "Relationships", "Academic & Science", "Slang & Idioms"];
-  const currentTheme = themes[Math.floor(Math.random() * themes.length)];
-
-  const prompt = `Generate ${count} distinct English oral expressions for a Chinese learner (B2/C1 level).
+  // 2. Get ALL items from LOCAL repository
+  // User requested NO AI generation for content, purely local.
+  const localItems = getLocalContent(count, existingSet);
   
-  CONTEXT:
-  - Theme: ${currentTheme}
-  - Difficulty: Mix of CET-6, IELTS, and authentic daily slang.
-  
-  CRITICAL CONSTRAINTS:
-  1. EXCLUDE these words (do not generate them): [${excludeList}]
-  2. STRICT JSON ONLY: Do not output any markdown code blocks, do not output any "thinking" text, do not output "Self-correction". Just the raw JSON array.
-  3. FIELDS:
-     - 'text': The word or idiom.
-     - 'translation': Concise Chinese meaning.
-     - 'definition': Simple English definition.
-     - 'example': A natural sentence using the word.
-     - 'example_zh': Chinese translation of the example.
-     - 'extra_info': Brief origin, synonym, or usage note (in Chinese). KEEP IT SHORT.
-  
-  JSON Structure:
-  [
-    {
-      "text": "serendipity",
-      "translation": "机缘巧合",
-      "definition": "The occurrence of events by chance in a happy or beneficial way.",
-      "example": "We found this amazing restaurant by pure serendipity.",
-      "example_zh": "我们纯属偶然发现了这家很棒的餐厅。",
-      "type": "word",
-      "pronunciation": "/ˌser.ənˈdɪp.ə.t̬i/",
-      "extra_info": "名词。常指意外发现美好事物的运气。"
-    }
-  ]`;
-
-  try {
-    const response = await client.models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        // Schema helps, but prompt instruction is also key for "clean" output
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              text: { type: Type.STRING },
-              translation: { type: Type.STRING },
-              definition: { type: Type.STRING },
-              example: { type: Type.STRING },
-              example_zh: { type: Type.STRING },
-              type: { type: Type.STRING, enum: ["word", "sentence", "idiom"] },
-              pronunciation: { type: Type.STRING },
-              extra_info: { type: Type.STRING }
-            },
-            required: ["text", "translation", "definition", "example", "example_zh", "type"]
-          }
-        }
-      }
-    });
-
-    if (response.text) {
-      const data = JSON.parse(response.text);
-      return data.map((item: any) => ({
-        ...item,
-        id: Math.random().toString(36).substr(2, 9)
-      }));
-    }
-    return [];
-  } catch (error) {
-    console.error("Failed to generate content", error);
-    return [];
+  if (localItems.length < count) {
+      console.warn(`Local repository exhausted. Requested ${count}, found ${localItems.length}.`);
   }
+
+  return localItems;
 }
 
 // --- Daily Quote Generation ---
@@ -324,13 +253,11 @@ export async function generateInitialTopic(): Promise<string> {
     return topics[Math.floor(Math.random() * topics.length)];
 }
 
-export async function generateTopicFromVocab(items: VocabularyItem[]): Promise<string> {
+export async function generateTopicFromVocab(items: StudyItem[]): Promise<string> {
   const client = getClient();
   if (!client) return generateInitialTopic();
 
-  // Only take 3 words
   const words = items.map(i => i.text).join(", ");
-  
   const prompt = `Generate a short, natural scenario title or setting phrase (2-6 words) that conceptually links these words: [${words}]. 
   
   Examples: 
