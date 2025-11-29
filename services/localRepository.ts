@@ -13,7 +13,7 @@ function parseSlangItem(item: any): StudyItem {
     translation: item.translation,
     definition: item.definition || item.translation,
     example: "No example provided.", // Slang dataset might lack examples
-    type: item.text.includes(' ') ? 'idiom' : 'word',
+    type: item.text.includes(' ') ? 'idiom' : 'word', // Simple heuristic, can be refined
     pronunciation: item.pronunciation,
     extra_info: "来源: 生活俚语库",
     saved: false
@@ -70,14 +70,24 @@ export function getTotalLocalItemsCount(): number {
 
 /**
  * Get random items from local repository, excluding already learned ones.
+ * Supports requesting specific count by type.
  */
-export function getLocalContent(count: number, existingTexts: Set<string>): StudyItem[] {
+export function getLocalContent(count: number, existingTexts: Set<string>, typePreference?: 'word' | 'sentence'): StudyItem[] {
   // 1. Filter out duplicates (words user has already saved)
-  const available = ALL_LOCAL_ITEMS.filter(item => !existingTexts.has(item.text));
+  let available = ALL_LOCAL_ITEMS.filter(item => !existingTexts.has(item.text));
 
-  // 2. Shuffle
+  // 2. Filter by type if requested
+  if (typePreference) {
+      if (typePreference === 'word') {
+          available = available.filter(item => item.type === 'word');
+      } else {
+          available = available.filter(item => item.type === 'sentence' || item.type === 'idiom');
+      }
+  }
+
+  // 3. Shuffle
   const shuffled = available.sort(() => 0.5 - Math.random());
 
-  // 3. Slice
+  // 4. Slice
   return shuffled.slice(0, count);
 }

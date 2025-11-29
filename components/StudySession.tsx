@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Info, Heart } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
 
 interface StudySessionProps {
   items: StudyItem[];
-  initialIndex: number; // Added to support resuming
-  onProgress: (index: number) => void; // Callback to save progress
+  initialIndex: number; 
+  onProgress: (index: number) => void;
   onComplete: (results: SessionResult[]) => void;
-  audioCache: Map<string, string>; // Passed from parent for persistence
+  audioCache: Map<string, string>;
 }
 
 export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex, onProgress, onComplete, audioCache }) => {
@@ -18,39 +18,38 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const [isPlaying, setIsPlaying] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   
-  // Track results for all items in this session
+  // New State for "Rate First" flow
+  // null = not rated yet (Front side)
+  // boolean = rated (Back side), true = mastered, false = review
+  const [currentRating, setCurrentRating] = useState<boolean | null>(null);
+
   const [results, setResults] = useState<SessionResult[]>([]);
-  // Track collected/saved status independently for visual toggle
   const [collectedIds, setCollectedIds] = useState<Set<string>>(new Set());
 
-  // Initialize collected IDs based on input items
   useEffect(() => {
       const initialSaved = new Set<string>();
       items.forEach(item => {
           if (item.saved) initialSaved.add(item.id);
       });
       setCollectedIds(initialSaved);
-  }, [items]); // Only run when items array reference changes (start of session)
+  }, [items]);
 
-  // Pronunciation State
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'evaluating' | 'result'>('idle');
   const [pronunciationResult, setPronunciationResult] = useState<{score: number, feedback: string} | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Update parent progress whenever index changes
   useEffect(() => {
     onProgress(currentIndex);
   }, [currentIndex, onProgress]);
 
-  // Reset function when moving to next card
   const resetCardState = () => {
       setIsFlipped(false);
+      setCurrentRating(null);
       setRecordingState('idle');
       setPronunciationResult(null);
   };
 
-  // Guard against empty items
   if (!items || items.length === 0) {
       return (
           <div className="flex flex-col items-center justify-center h-full text-slate-400 p-6">
@@ -75,24 +74,33 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
       setCollectedIds(newSet);
   };
 
-  const handleNext = (remembered: boolean) => {
-    // Record result for current item
-    // We update the 'saved' property based on current heart status
+  // Step 1: User rates the item (Front -> Back)
+  const handleRate = (mastered: boolean) => {
+      setCurrentRating(mastered);
+      setIsFlipped(true);
+      // Auto-play audio when flipped if mastered to reinforce, or if review
+      playTTS(currentItem.text);
+  };
+
+  // Step 2: User clicks Next (Back -> Next Card)
+  const handleNext = () => {
+    if (currentRating === null) return;
+
     const currentResult: SessionResult = {
         item: { ...currentItem, saved: collectedIds.has(currentItem.id) },
-        remembered
+        remembered: currentRating
     };
     
-    // Use functional update to ensure we don't lose previous results
     const updatedResults = [...results, currentResult];
     setResults(updatedResults);
     
-    resetCardState();
-
     if (currentIndex < items.length - 1) {
-      setTimeout(() => setCurrentIndex(prev => prev + 1), 200);
+      // Small delay for animation feel
+      setTimeout(() => {
+          resetCardState();
+          setCurrentIndex(prev => prev + 1);
+      }, 150);
     } else {
-      // Finished
       onComplete(updatedResults);
     }
   };
@@ -101,16 +109,14 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     if (isPlaying) return;
     setIsPlaying(true);
     try {
-        // Check passed Cache first
         if (audioCache.has(text)) {
             await playAudioFromBase64(audioCache.get(text)!);
         } else {
             const base64 = await generateSpeech(text);
             if (base64) {
-                audioCache.set(text, base64); // Save to prop cache
+                audioCache.set(text, base64);
                 await playAudioFromBase64(base64);
             } else {
-                // Fallback
                 const speech = new SpeechSynthesisUtterance(text);
                 speech.lang = 'en-US';
                 window.speechSynthesis.speak(speech);
@@ -125,28 +131,18 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
 
   const toggleRecording = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    
     if (recordingState === 'recording') {
-        // Stop
-        if (mediaRecorderRef.current) {
-            mediaRecorderRef.current.stop();
-        }
+        if (mediaRecorderRef.current) mediaRecorderRef.current.stop();
     } else {
-        // Start
         try {
             setPronunciationResult(null);
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-            
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
-
             mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
+                if (event.data.size > 0) audioChunksRef.current.push(event.data);
             };
-
             mediaRecorder.onstop = async () => {
                 setRecordingState('evaluating');
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
@@ -160,7 +156,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                 };
                 stream.getTracks().forEach(track => track.stop());
             };
-
             mediaRecorder.start();
             setRecordingState('recording');
         } catch (err) {
@@ -180,32 +175,15 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={() => setShowHelp(false)}>
                <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
                    <div className="flex justify-between items-center mb-4">
-                       <h3 className="text-lg font-bold text-white">记忆等级说明</h3>
+                       <h3 className="text-lg font-bold text-white">学习模式说明</h3>
                        <button onClick={() => setShowHelp(false)}><X size={20} className="text-slate-400" /></button>
                    </div>
                    <div className="space-y-4">
-                       <div className="flex gap-3">
-                           <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-500 shrink-0">
-                               <Check size={20} />
-                           </div>
-                           <div>
-                               <h4 className="font-bold text-emerald-400">掌握了 (Mastered)</h4>
-                               <p className="text-xs text-slate-400 mt-1">
-                                   如果你能立刻认出并读出该单词。选择此项会提升单词的熟悉度等级 (Lv +1)，下次复习间隔会变长。
-                               </p>
-                           </div>
-                       </div>
-                       <div className="flex gap-3">
-                           <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center text-red-500 shrink-0">
-                               <X size={20} />
-                           </div>
-                           <div>
-                               <h4 className="font-bold text-red-400">需复习 (Review)</h4>
-                               <p className="text-xs text-slate-400 mt-1">
-                                   如果你犹豫了、不记得意思或发音不准。选择此项会保持或重置等级，确保你下次很快能再次复习它。
-                               </p>
-                           </div>
-                       </div>
+                       <p className="text-slate-300 text-sm">
+                           1. 看到单词后，先在心里回忆意思和发音。<br/>
+                           2. 根据回忆情况，选择 <b>"需复习"</b> 或 <b>"掌握了"</b>。<br/>
+                           3. 卡片翻转，查看答案和例句，然后点击 <b>"下一个"</b>。
+                       </p>
                    </div>
                </div>
            </div>
@@ -225,7 +203,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
        {/* Card Container */}
        <div className="perspective-1000 w-full aspect-[4/5] md:aspect-[4/3] relative group shrink-0">
           
-          {/* Collection Button (Visible on both sides) */}
           <button 
              onClick={toggleCollect}
              className="absolute top-4 right-4 z-20 p-3 rounded-full hover:bg-slate-900/50 transition-colors"
@@ -237,10 +214,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           </button>
 
           <div 
-            className={`w-full h-full transition-transform duration-500 transform-style-3d relative cursor-pointer ${isFlipped ? 'rotate-y-180' : ''}`}
-            onClick={() => {
-                if(recordingState !== 'recording') setIsFlipped(!isFlipped);
-            }}
+            className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}
           >
              {/* Front */}
              <div className="absolute inset-0 backface-hidden bg-slate-800 border-2 border-slate-700 rounded-2xl flex flex-col items-center justify-center p-8 shadow-xl">
@@ -253,25 +227,27 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                  {currentItem.pronunciation && (
                      <p className="text-slate-400 font-mono text-sm">{currentItem.pronunciation}</p>
                  )}
-                 <p className="absolute bottom-8 text-slate-500 text-xs animate-pulse">点击翻转查看</p>
+                 {/* Only play audio button on front, no translation */}
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
+                    disabled={isPlaying}
+                    className="mt-8 p-3 bg-slate-700 rounded-full hover:bg-slate-600 text-blue-400 transition-colors disabled:opacity-50"
+                 >
+                    {isPlaying ? <Loader2 size={24} className="animate-spin" /> : <Volume2 size={24} />}
+                 </button>
              </div>
 
              {/* Back */}
              <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto custom-scrollbar">
                  <div className="flex-1 flex flex-col items-center w-full pt-4">
+                     {/* Result Badge */}
+                     <div className={`mb-4 px-3 py-1 rounded-full text-xs font-bold border ${currentRating ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                         {currentRating ? '已掌握' : '需复习'}
+                     </div>
+
                      <div className="flex items-center gap-3 mb-2">
-                        {/* TTS Button */}
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
-                            disabled={isPlaying}
-                            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-blue-400 transition-colors shrink-0 disabled:opacity-50"
-                        >
-                            {isPlaying ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
-                        </button>
-                        
                         <h3 className="text-xl font-bold text-slate-200 text-center">{currentItem.text}</h3>
                         
-                        {/* Record / Score Button */}
                         <button
                             onClick={toggleRecording}
                             className={`p-2 rounded-full transition-all shrink-0 relative ${
@@ -288,7 +264,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                         </button>
                      </div>
                      
-                     {/* Score Display */}
                      {recordingState === 'result' && pronunciationResult && (
                          <div className="mb-3 animate-in fade-in zoom-in duration-300 flex flex-col items-center">
                              <div className={`px-3 py-1 rounded-full text-xs font-bold mb-1 ${
@@ -302,15 +277,12 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                          </div>
                      )}
                      
-                     {/* Chinese Translation */}
                      <p className="text-xl text-emerald-400 font-bold mb-3 text-center">{currentItem.translation}</p>
                      
-                     {/* English Definition */}
                      <p className="text-sm text-slate-400 text-center mb-4 leading-relaxed px-2">
                         {currentItem.definition}
                      </p>
                      
-                     {/* Extra Info (Origin/POS) */}
                      {currentItem.extra_info && (
                          <div className="w-full bg-slate-950/50 border border-slate-800 p-2 rounded-lg mb-4 text-xs text-slate-400 flex items-start gap-2">
                             <Sparkles size={12} className="shrink-0 mt-0.5 text-amber-500" />
@@ -318,7 +290,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                          </div>
                      )}
 
-                     {/* Example Sentence */}
                      <div className="w-full bg-slate-800/50 p-4 rounded-xl border-l-4 border-blue-500 relative group/example">
                         <p className="text-sm text-slate-300 italic pr-8 mb-1">"{currentItem.example}"</p>
                         {currentItem.example_zh && (
@@ -338,27 +309,27 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
 
        {/* Controls */}
        <div className="flex items-center gap-4 md:gap-6 mt-8 w-full justify-center shrink-0">
-          {isFlipped ? (
+          {!isFlipped ? (
              <>
                 <button 
-                  onClick={() => handleNext(false)}
+                  onClick={() => handleRate(false)}
                   className="flex-1 py-3 md:py-4 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-medium hover:bg-slate-700 hover:border-red-500/50 hover:text-red-400 transition-all flex justify-center items-center gap-2"
                 >
                    <X size={20} /> 需复习
                 </button>
                 <button 
-                  onClick={() => handleNext(true)}
+                  onClick={() => handleRate(true)}
                   className="flex-1 py-3 md:py-4 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500 hover:scale-105 shadow-lg shadow-emerald-500/20 transition-all flex justify-center items-center gap-2"
                 >
-                   <Check size={20} /> 掌握了 (Lv +1)
+                   <Check size={20} /> 掌握了
                 </button>
              </>
           ) : (
              <button 
-               onClick={() => setIsFlipped(true)}
-               className="w-full py-3 md:py-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-500 transition-all flex justify-center items-center gap-2"
+               onClick={handleNext}
+               className="w-full py-3 md:py-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-500 transition-all flex justify-center items-center gap-2 animate-in fade-in"
              >
-                查看答案
+                下一个 <ArrowRight size={20} />
              </button>
           )}
        </div>

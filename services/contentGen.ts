@@ -43,18 +43,33 @@ export async function generateSpeech(text: string): Promise<string | null> {
 
 // --- Daily Plan Generation (Local Only) ---
 export async function generateDailyContent(count: number = 15, currentVocabList: { text: string }[] = []): Promise<StudyItem[]> {
-  // 1. Create a Set of existing words to avoid duplicates
   const existingSet = new Set(currentVocabList.map(v => v.text));
 
-  // 2. Get ALL items from LOCAL repository
-  // User requested NO AI generation for content, purely local.
-  const localItems = getLocalContent(count, existingSet);
+  // RATIO STRATEGY: ~2/3 Words, ~1/3 Sentences/Idioms
+  // e.g. For count=15: 10 Words, 5 Sentences
+  const wordCount = Math.floor(count * 0.66);
+  const sentenceCount = count - wordCount;
+
+  // 1. Get Words
+  const newWords = getLocalContent(wordCount, existingSet, 'word');
   
-  if (localItems.length < count) {
-      console.warn(`Local repository exhausted. Requested ${count}, found ${localItems.length}.`);
+  // 2. Get Sentences/Idioms
+  // Note: Add the newly picked words to existingSet temporarily to avoid duplication if repo has mixed content issues (unlikely but safe)
+  newWords.forEach(w => existingSet.add(w.text));
+  const newSentences = getLocalContent(sentenceCount, existingSet, 'sentence');
+
+  // 3. Fallback: If not enough sentences, fill with words
+  const needed = count - (newWords.length + newSentences.length);
+  let fillers: StudyItem[] = [];
+  if (needed > 0) {
+      newSentences.forEach(s => existingSet.add(s.text));
+      fillers = getLocalContent(needed, existingSet); // Get anything available
   }
 
-  return localItems;
+  const combined = [...newWords, ...newSentences, ...fillers];
+  
+  // Shuffle the combined result so user gets a mix
+  return combined.sort(() => 0.5 - Math.random());
 }
 
 // --- Daily Quote Generation ---
@@ -236,19 +251,21 @@ export async function evaluatePronunciation(
   }
 }
 
-// --- Initial Topic Generation (Updated) ---
+// --- Initial Topic Generation (Updated - Daily Life) ---
 export async function generateInitialTopic(): Promise<string> {
     const topics = [
-        "In the Supermarket",
-        "Job Interview",
-        "At the Airport",
-        "Ordering Coffee",
-        "Checking into a Hotel",
-        "Asking for Directions",
-        "Meeting a New Friend",
-        "Doctor's Appointment",
-        "Talking about Movies",
-        "Weekend Plans"
+        "Ordering Bubble Tea with adjustments (sugar/ice)",
+        "Returning a package at the post office",
+        "Complaining about noisy neighbors",
+        "Asking for a refund on a bad meal",
+        "Chatting about a new TV show",
+        "Explaining why you are late",
+        "Cancelling a gym subscription",
+        "Finding a lost item in Uber",
+        "Planning a weekend hiking trip",
+        "Asking a friend for a favor",
+        "Describing a weird dream",
+        "Recommending a local restaurant"
     ];
     return topics[Math.floor(Math.random() * topics.length)];
 }
@@ -258,12 +275,12 @@ export async function generateTopicFromVocab(items: StudyItem[]): Promise<string
   if (!client) return generateInitialTopic();
 
   const words = items.map(i => i.text).join(", ");
-  const prompt = `Generate a short, natural scenario title or setting phrase (2-6 words) that conceptually links these words: [${words}]. 
+  const prompt = `Generate a short, natural daily-life scenario title or setting phrase (2-6 words) that conceptually links these words: [${words}]. 
   
   Examples: 
   - "At the coffee shop"
-  - "Solving a problem"
-  - "In a business meeting"
+  - "Dealing with a mistake"
+  - "In a team meeting"
   
   Strictly output the phrase only. Do NOT generate a full sentence or a question.`;
 

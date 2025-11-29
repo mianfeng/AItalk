@@ -152,6 +152,7 @@ const App: React.FC = () => {
         const newQuota = 20 - reviewSessionItems.length; 
         const countToGenerate = Math.max(10, newQuota); 
         
+        // generateDailyContent now handles the ratio internally (Words vs Sentences)
         const generatedItems = await generateDailyContent(countToGenerate, vocabList);
         const newSessionItems = generatedItems.map(item => ({ ...item, saved: false }));
 
@@ -268,6 +269,7 @@ const App: React.FC = () => {
                     masteryLevel: remembered ? Math.min(5, existing.masteryLevel + 1) : Math.max(1, existing.masteryLevel - 1)
                 };
             } else {
+                // If it was marked as saved during the session (heart icon), add it
                 updatedVocabList.unshift({
                     ...item,
                     addedAt: now,
@@ -278,6 +280,7 @@ const App: React.FC = () => {
             }
         } 
         else {
+            // Check if user un-saved it
             const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
             if (existingIndex >= 0) {
                 updatedVocabList.splice(existingIndex, 1);
