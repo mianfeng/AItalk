@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
+import { StudyItem, AnalysisResult, DailyQuoteItem, VocabularyItem } from "../types";
 
 const modelName = "gemini-2.5-flash";
 const ttsModelName = "gemini-2.5-flash-preview-tts";
@@ -41,28 +41,49 @@ export async function generateSpeech(text: string): Promise<string | null> {
 }
 
 // --- Daily Plan Generation ---
-export async function generateDailyContent(count: number = 15): Promise<StudyItem[]> {
+export async function generateDailyContent(count: number = 15, existingItems: VocabularyItem[] = []): Promise<StudyItem[]> {
   const client = getClient();
   if (!client) return [];
 
+  // Pick ~50 random existing words to exclude to prevent duplicates (Prompt size limit)
+  const excludeList = existingItems
+      .sort(() => 0.5 - Math.random())
+      .slice(0, 50)
+      .map(i => i.text)
+      .join(", ");
+
+  // Randomly pick a theme to ensure variety
+  const themes = ["Business & Office", "Travel & Culture", "Daily Emotions", "Technology", "Food & Dining", "Relationships", "Academic & Science", "Slang & Idioms"];
+  const currentTheme = themes[Math.floor(Math.random() * themes.length)];
+
   const prompt = `Generate ${count} distinct English oral expressions for a Chinese learner (B2/C1 level).
   
-  CRITICAL REQUIREMENTS:
-  1. DIFFICULTY: 40% of the words/idioms must be from CET-6, IELTS, or TOEFL vocabulary lists. The rest should be authentic daily slang or office expressions.
-  2. FIELDS: You must provide a 'translation' (Chinese meaning), 'definition' (English), 'example' (English), AND 'example_zh' (Chinese translation of the example).
-  3. EXTRA INFO: Provide 'extra_info' containing either word origin, part-of-speech variants, or usage nuances (in Chinese).
-
+  CONTEXT:
+  - Theme: ${currentTheme}
+  - Difficulty: Mix of CET-6, IELTS, and authentic daily slang.
+  
+  CRITICAL CONSTRAINTS:
+  1. EXCLUDE these words (do not generate them): [${excludeList}]
+  2. STRICT JSON ONLY: Do not output any markdown code blocks, do not output any "thinking" text, do not output "Self-correction". Just the raw JSON array.
+  3. FIELDS:
+     - 'text': The word or idiom.
+     - 'translation': Concise Chinese meaning.
+     - 'definition': Simple English definition.
+     - 'example': A natural sentence using the word.
+     - 'example_zh': Chinese translation of the example.
+     - 'extra_info': Brief origin, synonym, or usage note (in Chinese). KEEP IT SHORT.
+  
   JSON Structure:
   [
     {
       "text": "serendipity",
-      "translation": "意外发现珍奇事物的本领; 缘分",
+      "translation": "机缘巧合",
       "definition": "The occurrence of events by chance in a happy or beneficial way.",
       "example": "We found this amazing restaurant by pure serendipity.",
       "example_zh": "我们纯属偶然发现了这家很棒的餐厅。",
       "type": "word",
       "pronunciation": "/ˌser.ənˈdɪp.ə.t̬i/",
-      "extra_info": "Origin: Coined by Horace Walpole, suggested by The Three Princes of Serendip."
+      "extra_info": "名词。常指意外发现美好事物的运气。"
     }
   ]`;
 
@@ -72,6 +93,7 @@ export async function generateDailyContent(count: number = 15): Promise<StudyIte
       contents: prompt,
       config: {
         responseMimeType: "application/json",
+        // Schema helps, but prompt instruction is also key for "clean" output
         responseSchema: {
           type: Type.ARRAY,
           items: {
@@ -302,12 +324,13 @@ export async function generateInitialTopic(): Promise<string> {
     return topics[Math.floor(Math.random() * topics.length)];
 }
 
-export async function generateTopicFromVocab(items: StudyItem[]): Promise<string> {
+export async function generateTopicFromVocab(items: VocabularyItem[]): Promise<string> {
   const client = getClient();
   if (!client) return generateInitialTopic();
 
+  // Only take 3 words
   const words = items.map(i => i.text).join(", ");
-  // Prompt modified to request a short phrase instead of a full sentence/question
+  
   const prompt = `Generate a short, natural scenario title or setting phrase (2-6 words) that conceptually links these words: [${words}]. 
   
   Examples: 

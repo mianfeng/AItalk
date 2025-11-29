@@ -35,6 +35,13 @@ export interface VocabularyItem extends StudyItem {
   lastReviewed?: number; // Timestamp of the last review session
 }
 
+export interface ConversationSession {
+  topic: string;
+  targetWords: VocabularyItem[];
+  history: {user: string, ai: string}[];
+  lastBetterVersion: string | null;
+}
+
 export interface Scenario {
   id: string;
   title: string;

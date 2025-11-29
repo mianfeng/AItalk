@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType, SessionResult } from './types';
+import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType, SessionResult, ConversationSession } from './types';
 import { generateDailyContent } from './services/contentGen';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
@@ -35,6 +35,9 @@ const App: React.FC = () => {
   // Persistence for Study Index
   const [studyIndex, setStudyIndex] = useState(0); 
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Persistence for Conversation Mode
+  const [conversationSession, setConversationSession] = useState<ConversationSession | null>(null);
 
   // Global Audio Cache for Study Session
   const audioCache = useRef<Map<string, string>>(new Map());
@@ -98,9 +101,9 @@ const App: React.FC = () => {
             .map(v => ({ ...v, saved: true }));
 
         // Generate new items
-        // Mark them as 'saved: false' initially. User must collect them to keep them.
+        // Pass existing list to avoid duplicates
         const countToGenerate = 15; 
-        const generatedItems = await generateDailyContent(countToGenerate);
+        const generatedItems = await generateDailyContent(countToGenerate, vocabList);
         const newItems = generatedItems.map(item => ({ ...item, saved: false }));
 
         if (newItems.length === 0 && reviewItems.length === 0) {
@@ -145,7 +148,6 @@ const App: React.FC = () => {
                     lastReviewed: now,
                     nextReviewAt: now + 86400000, // Simple SRS: +1 day for now
                     // If remembered, increase level. If not, reset to 1 or keep same?
-                    // Let's say: Remembered -> +1. Forgot -> Set to 1 (Review mode).
                     masteryLevel: remembered ? Math.min(5, existing.masteryLevel + 1) : Math.max(1, existing.masteryLevel - 1)
                 };
             } else {
@@ -200,6 +202,15 @@ const App: React.FC = () => {
     };
 
     setVocabList(prev => [newItem, ...prev]);
+  };
+
+  const handleConversationUpdate = (session: ConversationSession) => {
+      setConversationSession(session);
+  };
+
+  const handleEndConversation = () => {
+      setConversationSession(null);
+      setMode('dashboard');
   };
 
   const handleRestoreData = (data: BackupData) => {
@@ -322,10 +333,12 @@ const App: React.FC = () => {
                          </div>
                          
                          <div className="relative z-10">
-                             <div className="text-3xl font-bold text-slate-100 mb-1">口语实战</div>
+                             <div className="text-3xl font-bold text-slate-100 mb-1">
+                                 {conversationSession ? "继续实战" : "口语实战"}
+                             </div>
                              <p className="text-sm text-slate-500">模拟真实对话场景</p>
                              <div className="mt-3 text-xs text-blue-300/60 flex items-center gap-1">
-                                 随时开始 · 智能纠音
+                                 {conversationSession ? '恢复上一次对话' : '随时开始 · 智能纠音'}
                              </div>
                          </div>
                       </button>
@@ -399,9 +412,13 @@ const App: React.FC = () => {
         {/* VIEW: LIVE (Conversation Mode) */}
         {mode === 'live' && (
             <ConversationMode 
-                onExit={() => setMode('dashboard')} 
-                onSaveVocab={handleAddVocab} 
                 vocabList={vocabList} // Pass full list for context gen
+                onSaveVocab={handleAddVocab} 
+                
+                initialSession={conversationSession}
+                onUpdateSession={handleConversationUpdate}
+                onLeave={() => setMode('dashboard')}
+                onEnd={handleEndConversation}
             />
         )}
 

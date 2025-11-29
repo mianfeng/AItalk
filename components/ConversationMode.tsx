@@ -1,32 +1,37 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw, Target } from 'lucide-react';
+import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw, Target, LogOut, XCircle } from 'lucide-react';
 import { analyzeAudioResponse, generateInitialTopic, generateTopicFromVocab, generateSpeech } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
-import { AnalysisResult, ItemType, VocabularyItem } from '../types';
+import { AnalysisResult, ItemType, VocabularyItem, ConversationSession } from '../types';
 
 interface ConversationModeProps {
-  onExit: () => void;
-  onSaveVocab: (text: string, type: ItemType) => void;
   vocabList: VocabularyItem[]; // Added vocabList
+  onSaveVocab: (text: string, type: ItemType) => void;
+  
+  initialSession: ConversationSession | null;
+  onUpdateSession: (session: ConversationSession) => void;
+  onLeave: () => void;
+  onEnd: () => void;
 }
 
-export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSaveVocab, vocabList }) => {
-  const [currentTopic, setCurrentTopic] = useState<string>("Loading topic...");
-  const [history, setHistory] = useState<{user: string, ai: string}[]>([]);
+export const ConversationMode: React.FC<ConversationModeProps> = ({ 
+    vocabList, 
+    onSaveVocab, 
+    initialSession,
+    onUpdateSession,
+    onLeave,
+    onEnd
+}) => {
+  const [currentTopic, setCurrentTopic] = useState<string>(initialSession?.topic || "Loading topic...");
+  const [history, setHistory] = useState<{user: string, ai: string}[]>(initialSession?.history || []);
+  const [targetWords, setTargetWords] = useState<VocabularyItem[]>(initialSession?.targetWords || []);
   
-  // Select target words for this session
-  const targetWords = useMemo(() => {
-    // Shuffle and pick 3. If empty, pick from a default list or handle gracefully.
-    const shuffled = [...vocabList].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, 3);
-  }, []); // Run once on mount
-
   // States: idle -> recording -> processing -> reviewing -> idle
-  const [state, setState] = useState<'idle' | 'recording' | 'processing' | 'reviewing'>('processing');
+  const [state, setState] = useState<'idle' | 'recording' | 'processing' | 'reviewing'>('idle');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   
   // Stores the "Better Version" from the PREVIOUS attempt when "Try Again" is clicked
-  const [lastBetterVersion, setLastBetterVersion] = useState<string | null>(null);
+  const [lastBetterVersion, setLastBetterVersion] = useState<string | null>(initialSession?.lastBetterVersion || null);
 
   const [playingId, setPlayingId] = useState<string | null>(null); // 'topic' or 'better'
   
@@ -40,12 +45,26 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
   // Audio Cache
   const audioCache = useRef<Map<string, string>>(new Map());
 
-  // Init
+  // Init - Only if no session exists
   useEffect(() => {
     const init = async () => {
+        if (initialSession) {
+            // Restore from props
+            setState('idle');
+            return;
+        }
+
+        setState('processing'); // Show loading while fetching topic
+        
+        // 1. Pick Target Words
+        const shuffled = [...vocabList].sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 3);
+        setTargetWords(selected);
+
+        // 2. Generate Topic
         let topic = "";
-        if (targetWords.length > 0) {
-            topic = await generateTopicFromVocab(targetWords);
+        if (selected.length > 0) {
+            topic = await generateTopicFromVocab(selected);
         } else {
             topic = await generateInitialTopic();
         }
@@ -59,7 +78,20 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
         if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
         audioCache.current.clear();
     };
-  }, [targetWords]);
+  }, []);
+
+  // Sync state to parent whenever critical data changes
+  useEffect(() => {
+      // Don't sync if everything is empty (initial load)
+      if (currentTopic === "Loading topic..." && targetWords.length === 0) return;
+
+      onUpdateSession({
+          topic: currentTopic,
+          targetWords,
+          history,
+          lastBetterVersion
+      });
+  }, [currentTopic, targetWords, history, lastBetterVersion, onUpdateSession]);
 
   const playTTS = async (text: string, id: string) => {
     if (playingId) return;
@@ -191,7 +223,20 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ onExit, onSa
             <span className="bg-blue-500/10 text-blue-400 p-1.5 rounded-lg"><Mic size={18} /></span>
             <span className="font-semibold text-sm">模拟对话练习</span>
           </div>
-          <button onClick={onExit} className="text-slate-500 hover:text-white text-xs bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">结束</button>
+          <div className="flex items-center gap-2">
+              <button 
+                onClick={onLeave} 
+                className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-full hover:bg-slate-900 transition-colors flex items-center gap-1"
+              >
+                  <LogOut size={12} /> 暂时离开
+              </button>
+              <button 
+                onClick={onEnd} 
+                className="text-red-400 hover:text-red-300 text-xs bg-red-500/10 hover:bg-red-500/20 px-3 py-1.5 rounded-full border border-red-500/20 transition-colors flex items-center gap-1"
+              >
+                  <XCircle size={12} /> 结束练习
+              </button>
+          </div>
       </div>
 
       <div className="flex-1 flex flex-col items-center p-4 max-w-3xl mx-auto w-full gap-6 pb-20">
