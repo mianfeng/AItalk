@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
 
@@ -62,6 +62,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const currentItem = items[currentIndex];
   const progress = items.length > 0 ? ((currentIndex) / items.length) * 100 : 0;
   const isCollected = collectedIds.has(currentItem?.id);
+  const currentLevel = typeof currentItem.masteryLevel === 'number' ? currentItem.masteryLevel : 0;
 
   const toggleCollect = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -78,7 +79,8 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const handleRate = (mastered: boolean) => {
       setCurrentRating(mastered);
       setIsFlipped(true);
-      // Auto-play removed per request
+      // REMOVED: Auto-play audio on flip
+      // playTTS(currentItem.text); 
   };
 
   // Step 2: User clicks Next (Back -> Next Card)
@@ -213,7 +215,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           </button>
 
           <div 
-            className={`w-full h-full transform-style-3d relative transition-flip ${isFlipped ? 'rotate-y-180' : ''}`}
+            className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}
           >
              {/* Front */}
              <div className="absolute inset-0 backface-hidden bg-slate-800 border-2 border-slate-700 rounded-2xl flex flex-col items-center justify-center p-8 shadow-xl">
@@ -237,18 +239,20 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
              </div>
 
              {/* Back */}
-             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto custom-scrollbar">
-                 <div className="flex-1 flex flex-col items-center w-full pt-4">
-                     
-                     <div className="w-full flex justify-center items-center gap-4 mb-4 relative">
-                        {/* Result Badge */}
-                        <div className={`px-3 py-1 rounded-full text-xs font-bold border ${currentRating ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
-                            {currentRating ? '已掌握' : '需复习'}
-                        </div>
-                        {/* Mastery Level Badge */}
-                        <div className="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
-                            当前等级: Lv {currentItem.masteryLevel || 0}
-                        </div>
+             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto custom-scrollbar relative">
+                 
+                 {/* Mastery Level Indicator */}
+                 <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2 py-1 bg-slate-800 rounded-lg border border-slate-700">
+                    <BarChart size={12} className="text-blue-400" />
+                    <span className="text-[10px] text-slate-400 font-medium">
+                        当前等级: <span className="text-blue-300">Lv {currentLevel}</span>
+                    </span>
+                 </div>
+
+                 <div className="flex-1 flex flex-col items-center w-full pt-8">
+                     {/* Result Badge */}
+                     <div className={`mb-4 px-3 py-1 rounded-full text-xs font-bold border ${currentRating ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                         {currentRating ? '已掌握' : '需复习'}
                      </div>
 
                      <div className="flex items-center gap-3 mb-2">
@@ -285,7 +289,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                      
                      <p className="text-xl text-emerald-400 font-bold mb-3 text-center">{currentItem.translation}</p>
                      
-                     {currentItem.definition && currentItem.definition.trim() !== "" && (
+                     {currentItem.definition && currentItem.definition.trim() !== '' && (
                         <p className="text-sm text-slate-400 text-center mb-4 leading-relaxed px-2">
                             {currentItem.definition}
                         </p>

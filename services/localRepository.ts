@@ -16,7 +16,8 @@ function parseSlangItem(item: any): StudyItem {
     type: item.text.includes(' ') ? 'idiom' : 'word', // Simple heuristic, can be refined
     pronunciation: item.pronunciation,
     extra_info: "来源: 生活俚语库",
-    saved: false
+    saved: false,
+    masteryLevel: 0
   };
 }
 
@@ -46,12 +47,13 @@ function parseAcademicItem(item: any): StudyItem {
     id: `local-acad-${Math.random().toString(36).substr(2, 9)}`,
     text: item.text,
     translation: translation,
-    definition: definition, // Keep original raw def string as definition for context
+    definition: "", // Academic def is often just translation in the raw data, clearing to avoid duplication in UI
     example: item.example || "No example provided.",
     type: 'word',
     pronunciation: pronunciation,
     extra_info: "来源: 学术词库",
-    saved: false
+    saved: false,
+    masteryLevel: 0
   };
 }
 

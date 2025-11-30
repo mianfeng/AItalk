@@ -107,6 +107,7 @@ const App: React.FC = () => {
     try {
         const now = Date.now();
         const ONE_DAY = 86400000;
+        const todayStr = new Date().toDateString();
         
         // 1. Identify "Items to Review" (Review Queue)
         // Criteria A: Studied Yesterday (Reinforce Memory)
@@ -114,14 +115,18 @@ const App: React.FC = () => {
         const yesterdayItems = vocabList.filter(v => {
             const added = new Date(v.addedAt).toDateString();
             const reviewed = v.lastReviewed ? new Date(v.lastReviewed).toDateString() : '';
-            return added === yesterdayStr || reviewed === yesterdayStr;
+            // Only include if NOT reviewed today yet (to avoid immediate repetition in multi-session days)
+            const reviewedToday = v.lastReviewed ? new Date(v.lastReviewed).toDateString() === todayStr : false;
+            return (added === yesterdayStr || reviewed === yesterdayStr) && !reviewedToday;
         });
 
         // Criteria B: Mastery Level < 3 (Needs Review / Hard items)
         const weakItems = vocabList.filter(v => 
             v.masteryLevel < 3 && 
             !yesterdayItems.includes(v) &&
-            (now - v.addedAt > ONE_DAY)
+            (now - v.addedAt > ONE_DAY) &&
+            // EXCLUDE items already reviewed TODAY
+            (!v.lastReviewed || new Date(v.lastReviewed).toDateString() !== todayStr)
         );
 
         // Selection Logic: 50% Review, 50% New
@@ -141,7 +146,12 @@ const App: React.FC = () => {
         // If still need more, pick random older items
         if (selectedReviewItems.length < reviewQuota) {
              const needed = reviewQuota - selectedReviewItems.length;
-             const others = vocabList.filter(v => !selectedReviewItems.includes(v) && (now - v.addedAt > ONE_DAY));
+             const others = vocabList.filter(v => 
+                !selectedReviewItems.includes(v) && 
+                (now - v.addedAt > ONE_DAY) &&
+                // EXCLUDE items already reviewed TODAY
+                (!v.lastReviewed || new Date(v.lastReviewed).toDateString() !== todayStr)
+             );
              const shuffledOthers = others.sort(() => 0.5 - Math.random());
              selectedReviewItems = [...selectedReviewItems, ...shuffledOthers.slice(0, needed)];
         }

@@ -11,6 +11,7 @@ export interface StudyItem {
   pronunciation?: string;
   extra_info?: string; // New: Origin, word usage notes, or synonyms
   saved?: boolean; // New: Whether the user has collected/bookmarked this item
+  masteryLevel?: number; // New: Display current familiarity level (0-5)
 }
 
 export interface VocabularyItem extends StudyItem {
