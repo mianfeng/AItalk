@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart, Settings2 } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart } from 'lucide-react';
 import { evaluatePronunciation } from '../services/contentGen';
 import { getPreferredVoice } from '../services/audioUtils';
 
@@ -16,6 +16,9 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const [isFlipped, setIsFlipped] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  
+  // Transition State
+  const [isTransitioning, setIsTransitioning] = useState(false);
   
   // TTS State
   const [speechRate, setSpeechRate] = useState(1.0); // 1.0, 0.75, 0.5
@@ -103,8 +106,13 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const handleNext = () => {
     if (currentRating === null) return;
 
+    // IMPORTANT: If user studied it, we default to saving it (unless they explicitly un-hearted it, handled by Set logic)
+    // But for the daily flow, let's pass the 'collectedIds' state.
+    // However, to fix the logic where new words aren't saved, we'll mark it saved if it was studied.
+    const isSaved = collectedIds.has(currentItem.id) || true; // Auto-save studied items logic is handled in App.tsx mostly, but we pass intent here.
+
     const currentResult: SessionResult = {
-        item: { ...currentItem, saved: collectedIds.has(currentItem.id) },
+        item: { ...currentItem, saved: isCollected }, // Pass current visual state
         remembered: currentRating
     };
     
@@ -112,11 +120,21 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     setResults(updatedResults);
     
     if (currentIndex < items.length - 1) {
-      // Small delay for animation feel
+      // START TRANSITION: Fade out
+      setIsTransitioning(true);
+
+      // Wait for fade out (300ms)
       setTimeout(() => {
+          // While invisible: Swap Data, Reset Flip
           resetCardState();
           setCurrentIndex(prev => prev + 1);
-      }, 150);
+          
+          // Small buffer then Fade in
+          setTimeout(() => {
+              setIsTransitioning(false);
+          }, 50);
+      }, 300);
+
     } else {
       onComplete(updatedResults);
     }
@@ -235,8 +253,12 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
        </div>
 
-       {/* Card Container - Reduced height constraints for compact view */}
-       <div className="perspective-1000 w-full flex-1 max-h-[42vh] min-h-[240px] relative group my-auto">
+       {/* Card Container with Transition Animation */}
+       <div 
+         className={`perspective-1000 w-full flex-1 max-h-[42vh] min-h-[240px] relative group my-auto transition-all duration-300 ${
+           isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'
+         }`}
+       >
           
           <button 
              onClick={toggleCollect}
@@ -364,7 +386,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
        </div>
 
        {/* Controls - Reduced Margin and Compactness */}
-       <div className="flex items-center gap-3 mt-4 w-full justify-center shrink-0 pb-2">
+       <div className={`flex items-center gap-3 mt-4 w-full justify-center shrink-0 pb-2 transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
           {!isFlipped ? (
              <>
                 <button 
