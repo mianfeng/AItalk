@@ -7,9 +7,23 @@ import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2 } from 'lucide-react';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2, Bell } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'review';
+
+// SRS Interval Helper (in milliseconds)
+const getNextReviewInterval = (level: number): number => {
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  switch (level) {
+    case 0: return ONE_DAY;      // New/Forgot -> 1 day
+    case 1: return ONE_DAY;      // Learned -> 1 day
+    case 2: return 3 * ONE_DAY;  // Familiar -> 3 days
+    case 3: return 7 * ONE_DAY;  // Proficient -> 7 days
+    case 4: return 14 * ONE_DAY; // Advanced -> 14 days
+    case 5: return 30 * ONE_DAY; // Master -> 30 days
+    default: return ONE_DAY;
+  }
+};
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('dashboard');
@@ -89,6 +103,8 @@ const App: React.FC = () => {
       return addedDate === todayStr || reviewDate === todayStr;
   });
 
+  // Calculate Overdue Items (SRS)
+  const overdueCount = vocabList.filter(v => v.nextReviewAt <= Date.now()).length;
   const totalRepoCount = getTotalLocalItemsCount();
 
   // --- Handlers ---
@@ -103,75 +119,59 @@ const App: React.FC = () => {
     setIsGenerating(true);
     try {
         const now = Date.now();
-        const ONE_DAY = 86400000;
         const todayStr = new Date().toDateString();
-        
-        // 1. Identify "Items to Review" (Review Queue)
-        // Criteria A: Studied Yesterday (Reinforce Memory)
-        const yesterdayStr = new Date(now - ONE_DAY).toDateString();
-        const yesterdayItems = vocabList.filter(v => {
-            const added = new Date(v.addedAt).toDateString();
-            const reviewed = v.lastReviewed ? new Date(v.lastReviewed).toDateString() : '';
-            // Only include if NOT reviewed today yet (to avoid immediate repetition in multi-session days)
-            const reviewedToday = v.lastReviewed ? new Date(v.lastReviewed).toDateString() === todayStr : false;
-            return (added === yesterdayStr || reviewed === yesterdayStr) && !reviewedToday;
+
+        // SRS STRATEGY:
+        // 1. Identify Overdue Items (Backlog)
+        // 2. Limit Backlog to prevent burnout (e.g., max 25 reviews per session)
+        // 3. Always add a few New Items (e.g., min 5) to keep progress moving
+        // 4. Fill remaining space with New Items if backlog is small
+
+        const MAX_SESSION_SIZE = 30;
+        const MIN_NEW_ITEMS = 5;
+        const MAX_REVIEW_ITEMS = 25; // Cap reviews to avoid "endless review" hell
+
+        // 1. Find all items due for review (excluding those already reviewed today)
+        const allOverdue = vocabList.filter(v => {
+            const isDue = v.nextReviewAt <= now;
+            const alreadyReviewedToday = v.lastReviewed ? new Date(v.lastReviewed).toDateString() === todayStr : false;
+            return isDue && !alreadyReviewedToday;
         });
 
-        // Criteria B: Mastery Level < 3 (Needs Review / Hard items)
-        const weakItems = vocabList.filter(v => 
-            v.masteryLevel < 3 && 
-            !yesterdayItems.includes(v) &&
-            (now - v.addedAt > ONE_DAY) &&
-            // EXCLUDE items already reviewed TODAY
-            (!v.lastReviewed || new Date(v.lastReviewed).toDateString() !== todayStr)
-        );
-
-        // Selection Logic: 50% Review, 50% New
-        const reviewQuota = 10;
-        let selectedReviewItems: VocabularyItem[] = [];
-
-        // Add all from yesterday (up to quota)
-        selectedReviewItems = [...selectedReviewItems, ...yesterdayItems];
+        // 2. Select Review Items (Prioritize lowest mastery / oldest due?)
+        // Let's prioritize lower mastery to prevent forgetting
+        allOverdue.sort((a, b) => a.masteryLevel - b.masteryLevel);
         
-        // Fill remaining quota with weak items
-        if (selectedReviewItems.length < reviewQuota) {
-            const needed = reviewQuota - selectedReviewItems.length;
-            const shuffledWeak = weakItems.sort(() => 0.5 - Math.random());
-            selectedReviewItems = [...selectedReviewItems, ...shuffledWeak.slice(0, needed)];
-        }
+        const reviewCount = Math.min(allOverdue.length, MAX_REVIEW_ITEMS);
+        const selectedReviewItems = allOverdue.slice(0, reviewCount);
+        
+        // 3. Calculate New Items Needed
+        // If we have 25 reviews, we add 5 new = 30 total.
+        // If we have 5 reviews, we add 25 new = 30 total.
+        let newItemsNeeded = MAX_SESSION_SIZE - selectedReviewItems.length;
+        
+        // Ensure minimum new items, unless total cap is exceeded (which shouldn't happen with logic above)
+        newItemsNeeded = Math.max(newItemsNeeded, MIN_NEW_ITEMS);
 
-        // If still need more, pick random older items
-        if (selectedReviewItems.length < reviewQuota) {
-             const needed = reviewQuota - selectedReviewItems.length;
-             const others = vocabList.filter(v => 
-                !selectedReviewItems.includes(v) && 
-                (now - v.addedAt > ONE_DAY) &&
-                // EXCLUDE items already reviewed TODAY
-                (!v.lastReviewed || new Date(v.lastReviewed).toDateString() !== todayStr)
-             );
-             const shuffledOthers = others.sort(() => 0.5 - Math.random());
-             selectedReviewItems = [...selectedReviewItems, ...shuffledOthers.slice(0, needed)];
-        }
-
+        // Prepare Review Items
         const reviewSessionItems: StudyItem[] = selectedReviewItems.map(v => ({ ...v, saved: true }));
 
-        // 2. Generate "New Items"
-        const newQuota = 20 - reviewSessionItems.length; 
-        const countToGenerate = Math.max(10, newQuota); 
-        
-        // generateDailyContent now handles the ratio internally (Words vs Sentences)
-        const generatedItems = await generateDailyContent(countToGenerate, vocabList);
+        // 4. Generate New Items
+        const generatedItems = await generateDailyContent(newItemsNeeded, vocabList);
         const newSessionItems = generatedItems.map(item => ({ ...item, saved: false }));
 
         if (newSessionItems.length === 0 && reviewSessionItems.length === 0) {
-            alert("词库已学完，或者没有需要复习的内容！");
+            alert("恭喜！您已学完所有内容且没有待复习的单词。");
             setIsGenerating(false);
             return;
         }
 
-        setTodaysItems([...reviewSessionItems, ...newSessionItems]);
+        // Combine: Reviews first (to get them out of the way), then New
+        // Or shuffled? Shuffled is usually better for engagement.
+        const combined = [...reviewSessionItems, ...newSessionItems].sort(() => 0.5 - Math.random());
+
+        setTodaysItems(combined);
         setStudyIndex(0); 
-        
         setMode('study');
     } catch (e) {
         console.error(e);
@@ -210,7 +210,6 @@ const App: React.FC = () => {
           }
 
           // Fallback: If we didn't get 3 items, fill up with whatever we have left from the OTHER pool
-          // (e.g. user only has words, no sentences)
           if (target.length < 3) {
               const usedIds = new Set(target.map(t => t.id));
               const remaining = vocabList.filter(v => !usedIds.has(v.id)).sort(() => 0.5 - Math.random());
@@ -263,33 +262,60 @@ const App: React.FC = () => {
     const updatedVocabList = [...vocabList];
 
     results.forEach(({ item, remembered }) => {
-        if (item.saved) {
-            const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
+        // AUTO-SAVE LOGIC:
+        // If an item is in the daily plan and the user rates it, we assume they want to learn it.
+        // Unless they explicitly un-saved it (but standard flow doesn't support un-saving easily in session).
+        // So we treat all results as "Active" items for SRS.
+
+        const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
+        
+        if (existingIndex >= 0) {
+            // Existing Item: Update stats
+            const existing = updatedVocabList[existingIndex];
             
-            if (existingIndex >= 0) {
-                const existing = updatedVocabList[existingIndex];
+            // Check if user actively Un-hearted it? 
+            // If item.saved is passed as false from session, it means user clicked heart to OFF.
+            if (!item.saved) {
+                // If user explicitly un-saved, remove it from vocab list
+                updatedVocabList.splice(existingIndex, 1);
+            } else {
+                // Update Mastery
+                const newLevel = remembered 
+                    ? Math.min(5, existing.masteryLevel + 1) 
+                    : Math.max(1, existing.masteryLevel - 1); // Drop level if forgot, but keep at least 1
+
+                const interval = getNextReviewInterval(newLevel);
+
                 updatedVocabList[existingIndex] = {
                     ...existing,
                     lastReviewed: now,
-                    nextReviewAt: now + 86400000,
-                    masteryLevel: remembered ? Math.min(5, existing.masteryLevel + 1) : Math.max(1, existing.masteryLevel - 1)
+                    nextReviewAt: now + interval,
+                    masteryLevel: newLevel,
+                    saved: true
                 };
-            } else {
-                // If it was marked as saved during the session (heart icon), add it
+            }
+        } else {
+            // New Item: Add to list (if saved/studied)
+            // If the user studied it (remembered true/false), we add it. 
+            // Unless they explicitly un-hearted it (saved: false).
+            // But usually for new items, saved starts as false. 
+            // We'll assume if they finished the card, they want to save it.
+            
+            // NOTE: To allow "Skipping" words, we might need a "Skip" button, but currently we only have "Review" or "Mastered".
+            // So we assume both mean "I am learning this".
+            
+            if (item.saved || true) { // Force save for daily plan items
+                const newLevel = remembered ? 1 : 0;
+                const interval = getNextReviewInterval(newLevel);
+
                 updatedVocabList.unshift({
                     ...item,
                     addedAt: now,
                     lastReviewed: now,
-                    nextReviewAt: now + 86400000,
-                    masteryLevel: remembered ? 1 : 0
+                    nextReviewAt: now + interval,
+                    masteryLevel: newLevel,
+                    saved: true
                 });
-            }
-        } 
-        else {
-            // Check if user un-saved it
-            const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
-            if (existingIndex >= 0) {
-                updatedVocabList.splice(existingIndex, 1);
             }
         }
     });
@@ -315,7 +341,7 @@ const App: React.FC = () => {
       definition: "Saved from conversation.",
       example: "",
       addedAt: Date.now(),
-      nextReviewAt: Date.now(),
+      nextReviewAt: Date.now(), // Due immediately
       masteryLevel: 0,
       saved: true
     };
@@ -391,13 +417,13 @@ const App: React.FC = () => {
                         onClick={startDailyPlan}
                         disabled={isGenerating}
                         className={`text-left p-5 rounded-3xl border transition-all relative overflow-hidden group ${
-                            dailyStats.itemsLearned >= 15 && !isSessionActive
+                            dailyStats.itemsLearned >= 15 && !isSessionActive && overdueCount === 0
                             ? 'bg-emerald-900/10 border-emerald-500/30 hover:bg-emerald-900/20' 
                             : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-800'
                         }`}
                       >
                          <div className="flex justify-between items-start mb-6 relative z-10">
-                             <div className={`p-3 rounded-2xl ${dailyStats.itemsLearned >= 15 && !isSessionActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400 group-hover:text-emerald-400 group-hover:bg-slate-950 transition-colors'}`}>
+                             <div className={`p-3 rounded-2xl ${dailyStats.itemsLearned >= 15 && !isSessionActive && overdueCount === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400 group-hover:text-emerald-400 group-hover:bg-slate-950 transition-colors'}`}>
                                 <Book size={24} />
                              </div>
                              {isGenerating && !activeSession ? ( // Only spin if generating vocab
@@ -422,9 +448,20 @@ const App: React.FC = () => {
                                  </div>
                              )}
                              
-                             {!isSessionActive && dailyStats.itemsLearned >= 15 && (
-                                 <div className="mt-3 text-emerald-400 text-sm flex items-center gap-1">
-                                     <CheckCircle size={14} /> 今日目标达成
+                             {/* Status Badges */}
+                             {!isSessionActive && (
+                                 <div className="mt-3 flex gap-2">
+                                     {overdueCount > 0 ? (
+                                         <span className="text-red-400 text-sm flex items-center gap-1 font-bold animate-pulse">
+                                             <Bell size={14} fill="currentColor" /> 待复习: {overdueCount}
+                                         </span>
+                                     ) : (
+                                         dailyStats.itemsLearned >= 15 && (
+                                            <span className="text-emerald-400 text-sm flex items-center gap-1">
+                                                <CheckCircle size={14} /> 今日目标达成
+                                            </span>
+                                         )
+                                     )}
                                  </div>
                              )}
                          </div>
