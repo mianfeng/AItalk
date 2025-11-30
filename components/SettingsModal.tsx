@@ -1,6 +1,8 @@
-import React, { useRef, useState } from 'react';
-import { X, Download, FileJson, FileSpreadsheet, Upload, AlertTriangle, CheckCircle, ArrowLeft, Volume2, PieChart, Star } from 'lucide-react';
+
+import React, { useRef, useState, useEffect } from 'react';
+import { X, Download, FileJson, FileSpreadsheet, Upload, AlertTriangle, CheckCircle, ArrowLeft, Volume2, PieChart, Star, Mic, RefreshCw } from 'lucide-react';
 import { VocabularyItem, DailyStats, BackupData } from '../types';
+import { getPreferredVoice } from '../services/audioUtils';
 
 interface SettingsModalProps {
   show: boolean;
@@ -21,14 +23,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [viewMode, setViewMode] = useState<'menu' | 'list'>('menu');
+  const [viewMode, setViewMode] = useState<'menu' | 'list' | 'voice'>('menu');
+  
+  // Voice Settings State
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
+
+  useEffect(() => {
+    if (show) {
+        // Load voices when modal opens
+        const load = () => {
+            const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+            setAvailableVoices(voices);
+            
+            const savedURI = localStorage.getItem('lingua_voice_uri');
+            if (savedURI && voices.some(v => v.voiceURI === savedURI)) {
+                setSelectedVoiceURI(savedURI);
+            } else {
+                // Auto-select best default to show user what is currently active
+                const best = getPreferredVoice(voices, null);
+                if (best) setSelectedVoiceURI(best.voiceURI);
+            }
+        };
+        load();
+        window.speechSynthesis.onvoiceschanged = load;
+    }
+  }, [show]);
+
+  const handleVoiceChange = (uri: string) => {
+      setSelectedVoiceURI(uri);
+      localStorage.setItem('lingua_voice_uri', uri);
+      // Trigger a test sound
+      const voice = availableVoices.find(v => v.voiceURI === uri);
+      if (voice) {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance("Hello, this is my voice.");
+          u.voice = voice;
+          window.speechSynthesis.speak(u);
+      }
+  };
 
   if (!show) return null;
 
   // Calculate Stats
   const learnedCount = vocabList.filter(v => v.masteryLevel > 1).length;
-  // Calculate percentage of total repo that is mastered/learned
-  // Avoid division by zero if repo is empty for some reason
   const learnedPercentage = totalRepoCount > 0 ? Math.round((learnedCount / totalRepoCount) * 100) : 0;
 
   // --- Export Logic ---
@@ -99,7 +137,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           if (confirm(`检测到备份文件。\n包含 ${data.vocabList.length} 个单词记录。\n\n确认要覆盖当前数据进行恢复吗？此操作不可撤销。`)) {
              onRestore(data as BackupData);
              setImportStatus('success');
-             // Update backup timestamp since we just restored a valid state
              localStorage.setItem('lingua_last_backup', Date.now().toString());
              setTimeout(() => {
                  onClose();
@@ -116,13 +153,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     };
     reader.readAsText(file);
-    // Reset input so same file can be selected again if needed
     event.target.value = '';
   };
 
   const playSimpleTTS = (text: string) => {
       const speech = new SpeechSynthesisUtterance(text);
       speech.lang = 'en-US';
+      const voice = availableVoices.find(v => v.voiceURI === selectedVoiceURI);
+      if (voice) speech.voice = voice;
       window.speechSynthesis.speak(speech);
   };
 
@@ -133,12 +171,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950 shrink-0">
           <div className="flex items-center gap-3">
-              {viewMode === 'list' && (
+              {(viewMode === 'list' || viewMode === 'voice') && (
                   <button onClick={() => setViewMode('menu')} className="text-slate-400 hover:text-white">
                       <ArrowLeft size={20} />
                   </button>
               )}
-              <h2 className="text-lg font-bold text-slate-100">{viewMode === 'list' ? '全部单词' : '数据管理'}</h2>
+              <h2 className="text-lg font-bold text-slate-100">
+                  {viewMode === 'list' ? '全部单词' : (viewMode === 'voice' ? '发音设置' : '设置')}
+              </h2>
           </div>
           <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
             <X size={20} />
@@ -163,10 +203,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                         <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, learnedPercentage)}%` }} />
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-2 text-right">
-                        已掌握 (Lv {'>'} 1)
-                    </p>
                 </div>
+
+                {/* Voice Settings Button */}
+                <button 
+                    onClick={() => setViewMode('voice')}
+                    className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl p-4 transition-colors text-left flex justify-between items-center"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">
+                            <Mic size={20} />
+                        </div>
+                        <div>
+                            <div className="font-medium text-slate-200">发音设置 (TTS)</div>
+                            <div className="text-xs text-slate-500">
+                                {availableVoices.length > 0 ? "已就绪" : "加载中..."} 
+                            </div>
+                        </div>
+                    </div>
+                    <ArrowLeft size={18} className="text-slate-500 rotate-180" />
+                </button>
 
                 {/* Collection Button */}
                 <button 
@@ -184,67 +240,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <ArrowLeft size={18} className="text-indigo-400 rotate-180 group-hover:translate-x-1 transition-transform" />
                 </button>
 
-                <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-slate-400">数据备份与导出</h3>
-                    <button 
-                        onClick={handleExportJSON}
-                        className="w-full flex items-center justify-between p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all group"
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                                <FileJson size={20} />
-                            </div>
-                            <div className="text-left">
-                                <div className="font-medium text-slate-200">导出备份文件 (JSON)</div>
-                                <div className="text-xs text-slate-500">包含完整数据的备份，用于恢复</div>
-                            </div>
-                        </div>
-                        <Download size={18} className="text-slate-500 group-hover:text-white" />
-                    </button>
+                <div className="border-t border-slate-800 pt-4 space-y-3">
+                    <h3 className="text-sm font-semibold text-slate-400">备份与恢复</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={handleExportJSON}
+                            className="flex flex-col items-center justify-center p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all"
+                        >
+                            <FileJson size={20} className="text-blue-400 mb-2" />
+                            <span className="text-xs text-slate-300">导出备份</span>
+                        </button>
+                        <button 
+                            onClick={handleExportCSV}
+                            className="flex flex-col items-center justify-center p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all"
+                        >
+                            <FileSpreadsheet size={20} className="text-emerald-400 mb-2" />
+                            <span className="text-xs text-slate-300">导出 Excel</span>
+                        </button>
+                    </div>
 
-                    <button 
-                        onClick={handleExportCSV}
-                        className="w-full flex items-center justify-between p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all group"
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                                <FileSpreadsheet size={20} />
-                            </div>
-                            <div className="text-left">
-                                <div className="font-medium text-slate-200">导出单词表 (Excel/CSV)</div>
-                                <div className="text-xs text-slate-500">用于导入 Anki 或打印复习</div>
-                            </div>
-                        </div>
-                        <Download size={18} className="text-slate-500 group-hover:text-white" />
-                    </button>
-                </div>
-
-                <div className="pt-4 border-t border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 mb-3">数据恢复</h3>
-                    <input 
-                        type="file" 
-                        accept=".json" 
-                        ref={fileInputRef} 
-                        className="hidden" 
-                        onChange={handleFileSelect}
-                    />
+                    <input type="file" accept=".json" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
                     <button 
                         onClick={() => fileInputRef.current?.click()}
                         className="w-full py-3 border border-dashed border-slate-600 rounded-xl text-slate-400 hover:text-white hover:border-slate-400 hover:bg-slate-800 transition-all flex items-center justify-center gap-2 text-sm"
                     >
                         {importStatus === 'success' ? (
-                            <span className="text-emerald-400 flex items-center gap-2"><CheckCircle size={16} /> 导入成功</span>
+                            <span className="text-emerald-400 flex items-center gap-2"><CheckCircle size={16} /> 恢复成功</span>
                         ) : (
-                            <>
-                                <Upload size={16} /> 从 JSON 备份文件恢复数据
-                            </>
+                            <> <Upload size={16} /> 从备份恢复 </>
                         )}
                     </button>
-                    <p className="text-[10px] text-slate-500 mt-2 text-center">
-                        <AlertTriangle size={10} className="inline mr-1" />
-                        导入将覆盖当前的学习进度，请谨慎操作。
-                    </p>
                 </div>
+              </div>
+          ) : viewMode === 'voice' ? (
+              <div className="space-y-4">
+                  <div className="bg-slate-800/50 p-3 rounded-lg text-sm text-slate-400">
+                      <p className="mb-2">移动端如果发音机械，请尝试切换到带有 <b>Enhanced</b>, <b>Premium</b>, <b>High Quality</b> 等字样的声音。</p>
+                      <p className="text-xs text-slate-500">注意：部分声音可能需要先在手机系统设置中下载。</p>
+                  </div>
+                  
+                  {availableVoices.length === 0 ? (
+                      <div className="text-center py-8">
+                          <RefreshCw className="animate-spin mx-auto text-slate-600 mb-2" />
+                          <p className="text-slate-500">正在加载语音库...</p>
+                      </div>
+                  ) : (
+                      <div className="space-y-2">
+                          {availableVoices.map(voice => (
+                              <button
+                                key={voice.voiceURI}
+                                onClick={() => handleVoiceChange(voice.voiceURI)}
+                                className={`w-full p-3 rounded-lg flex items-center justify-between text-left transition-colors border ${
+                                    selectedVoiceURI === voice.voiceURI 
+                                    ? 'bg-purple-500/20 border-purple-500/50' 
+                                    : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
+                                }`}
+                              >
+                                  <div className="min-w-0 pr-2">
+                                      <div className={`font-medium truncate ${selectedVoiceURI === voice.voiceURI ? 'text-purple-300' : 'text-slate-300'}`}>
+                                          {voice.name}
+                                      </div>
+                                      <div className="text-xs text-slate-500">{voice.lang}</div>
+                                  </div>
+                                  {selectedVoiceURI === voice.voiceURI && <CheckCircle size={16} className="text-purple-400 shrink-0" />}
+                              </button>
+                          ))}
+                      </div>
+                  )}
               </div>
           ) : (
               <div className="space-y-4">

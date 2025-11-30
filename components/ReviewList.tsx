@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { VocabularyItem } from '../types';
 import { ArrowLeft, Volume2, Loader2 } from 'lucide-react';
+import { getPreferredVoice } from '../services/audioUtils';
 
 interface ReviewListProps {
   items: VocabularyItem[];
@@ -14,11 +16,8 @@ export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      const bestVoice = voices.find(v => v.name.includes('Google US English')) || 
-                        voices.find(v => v.name.includes('Zira') || v.name.includes('David')) ||
-                        voices.find(v => v.lang === 'en-US') ||
-                        voices.find(v => v.lang.startsWith('en'));
-      
+      const savedURI = localStorage.getItem('lingua_voice_uri');
+      const bestVoice = getPreferredVoice(voices, savedURI);
       if (bestVoice) setPreferredVoice(bestVoice);
     };
 

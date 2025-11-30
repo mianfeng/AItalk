@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
 import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart, Settings2 } from 'lucide-react';
 import { evaluatePronunciation } from '../services/contentGen';
+import { getPreferredVoice } from '../services/audioUtils';
 
 interface StudySessionProps {
   items: StudyItem[];
@@ -40,12 +41,8 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      // Priority: Google US English > Microsoft Zira/David > Any US English > Any English
-      const bestVoice = voices.find(v => v.name.includes('Google US English')) || 
-                        voices.find(v => v.name.includes('Zira') || v.name.includes('David')) ||
-                        voices.find(v => v.lang === 'en-US') ||
-                        voices.find(v => v.lang.startsWith('en'));
-      
+      const savedURI = localStorage.getItem('lingua_voice_uri');
+      const bestVoice = getPreferredVoice(voices, savedURI);
       if (bestVoice) setPreferredVoice(bestVoice);
     };
 

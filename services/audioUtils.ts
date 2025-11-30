@@ -1,3 +1,4 @@
+
 /**
  * Decodes base64 string to raw bytes.
  */
@@ -87,4 +88,45 @@ export async function playAudioFromBase64(base64String: string): Promise<void> {
   } catch (error) {
     console.error("Error playing audio:", error);
   }
+}
+
+// --- Browser TTS Utilities ---
+
+/**
+ * Gets the best available English voice.
+ * Priorities: 
+ * 1. User saved preference (URI)
+ * 2. Mobile High Quality (Premium, Enhanced, Siri)
+ * 3. Google/Microsoft Online Voices
+ * 4. Standard en-US
+ */
+export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?: string | null): SpeechSynthesisVoice | null {
+  if (savedVoiceURI) {
+    const saved = voices.find(v => v.voiceURI === savedVoiceURI);
+    if (saved) return saved;
+  }
+
+  // Filter for English voices first to avoid iterating all
+  const englishVoices = voices.filter(v => v.lang.startsWith('en'));
+
+  // 1. iOS/Mac High Quality (Samantha Enhanced, Daniel Enhanced, Siri)
+  const iosPremium = englishVoices.find(v => 
+    (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Siri')) && v.lang.includes('US')
+  );
+  if (iosPremium) return iosPremium;
+
+  // 2. Google Voices (Android/Chrome) - "Google US English" is usually the best online one
+  const googleBest = englishVoices.find(v => v.name === 'Google US English');
+  if (googleBest) return googleBest;
+
+  // 3. Microsoft Voices (Edge/Windows)
+  const msBest = englishVoices.find(v => (v.name.includes('Zira') || v.name.includes('David')) && v.lang.includes('US'));
+  if (msBest) return msBest;
+
+  // 4. Any US English
+  const anyUS = englishVoices.find(v => v.lang === 'en-US');
+  if (anyUS) return anyUS;
+
+  // 5. Any English
+  return englishVoices[0] || null;
 }
