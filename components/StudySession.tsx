@@ -78,8 +78,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const handleRate = (mastered: boolean) => {
       setCurrentRating(mastered);
       setIsFlipped(true);
-      // Auto-play audio when flipped if mastered to reinforce, or if review
-      playTTS(currentItem.text);
+      // Auto-play removed per request
   };
 
   // Step 2: User clicks Next (Back -> Next Card)
@@ -214,7 +213,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           </button>
 
           <div 
-            className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}
+            className={`w-full h-full transform-style-3d relative transition-flip ${isFlipped ? 'rotate-y-180' : ''}`}
           >
              {/* Front */}
              <div className="absolute inset-0 backface-hidden bg-slate-800 border-2 border-slate-700 rounded-2xl flex flex-col items-center justify-center p-8 shadow-xl">
@@ -240,9 +239,16 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
              {/* Back */}
              <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-6 md:p-8 shadow-xl overflow-y-auto custom-scrollbar">
                  <div className="flex-1 flex flex-col items-center w-full pt-4">
-                     {/* Result Badge */}
-                     <div className={`mb-4 px-3 py-1 rounded-full text-xs font-bold border ${currentRating ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
-                         {currentRating ? '已掌握' : '需复习'}
+                     
+                     <div className="w-full flex justify-center items-center gap-4 mb-4 relative">
+                        {/* Result Badge */}
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold border ${currentRating ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
+                            {currentRating ? '已掌握' : '需复习'}
+                        </div>
+                        {/* Mastery Level Badge */}
+                        <div className="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                            当前等级: Lv {currentItem.masteryLevel || 0}
+                        </div>
                      </div>
 
                      <div className="flex items-center gap-3 mb-2">
@@ -279,9 +285,11 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                      
                      <p className="text-xl text-emerald-400 font-bold mb-3 text-center">{currentItem.translation}</p>
                      
-                     <p className="text-sm text-slate-400 text-center mb-4 leading-relaxed px-2">
-                        {currentItem.definition}
-                     </p>
+                     {currentItem.definition && currentItem.definition.trim() !== "" && (
+                        <p className="text-sm text-slate-400 text-center mb-4 leading-relaxed px-2">
+                            {currentItem.definition}
+                        </p>
+                     )}
                      
                      {currentItem.extra_info && (
                          <div className="w-full bg-slate-950/50 border border-slate-800 p-2 rounded-lg mb-4 text-xs text-slate-400 flex items-start gap-2">
