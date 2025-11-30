@@ -1,18 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
 import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart } from 'lucide-react';
-import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
-import { playAudioFromBase64 } from '../services/audioUtils';
+import { evaluatePronunciation } from '../services/contentGen';
 
 interface StudySessionProps {
   items: StudyItem[];
   initialIndex: number; 
   onProgress: (index: number) => void;
   onComplete: (results: SessionResult[]) => void;
-  audioCache: Map<string, string>;
 }
 
-export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex, onProgress, onComplete, audioCache }) => {
+export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex, onProgress, onComplete }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -79,8 +77,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const handleRate = (mastered: boolean) => {
       setCurrentRating(mastered);
       setIsFlipped(true);
-      // REMOVED: Auto-play audio on flip
-      // playTTS(currentItem.text); 
+      // Optional: Auto-play audio on flip could be added here
   };
 
   // Step 2: User clicks Next (Back -> Next Card)
@@ -106,28 +103,27 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     }
   };
 
-  const playTTS = async (text: string) => {
+  const playTTS = (text: string) => {
     if (isPlaying) return;
     setIsPlaying(true);
-    try {
-        if (audioCache.has(text)) {
-            await playAudioFromBase64(audioCache.get(text)!);
-        } else {
-            const base64 = await generateSpeech(text);
-            if (base64) {
-                audioCache.set(text, base64);
-                await playAudioFromBase64(base64);
-            } else {
-                const speech = new SpeechSynthesisUtterance(text);
-                speech.lang = 'en-US';
-                window.speechSynthesis.speak(speech);
-            }
-        }
-    } catch (e) {
-        console.error("Audio error", e);
-    } finally {
+    
+    // Cancel any previous utterance
+    window.speechSynthesis.cancel();
+
+    const speech = new SpeechSynthesisUtterance(text);
+    speech.lang = 'en-US';
+    speech.rate = 1.0;
+
+    speech.onend = () => {
         setIsPlaying(false);
-    }
+    };
+
+    speech.onerror = (e) => {
+        console.error("Speech synthesis error", e);
+        setIsPlaying(false);
+    };
+
+    window.speechSynthesis.speak(speech);
   };
 
   const toggleRecording = async (e: React.MouseEvent) => {

@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { VocabularyItem } from '../types';
 import { ArrowLeft, Volume2, Loader2 } from 'lucide-react';
-import { generateSpeech } from '../services/contentGen';
-import { playAudioFromBase64 } from '../services/audioUtils';
 
 interface ReviewListProps {
   items: VocabularyItem[];
@@ -12,23 +10,18 @@ interface ReviewListProps {
 export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
   const [playingId, setPlayingId] = useState<string | null>(null);
 
-  const playTTS = async (text: string, id: string) => {
+  const playTTS = (text: string, id: string) => {
     if (playingId) return;
     setPlayingId(id);
-    try {
-        const base64 = await generateSpeech(text);
-        if (base64) {
-            await playAudioFromBase64(base64);
-        } else {
-            const speech = new SpeechSynthesisUtterance(text);
-            speech.lang = 'en-US';
-            window.speechSynthesis.speak(speech);
-        }
-    } catch (e) {
-        console.error(e);
-    } finally {
-        setPlayingId(null);
-    }
+    
+    window.speechSynthesis.cancel();
+    const speech = new SpeechSynthesisUtterance(text);
+    speech.lang = 'en-US';
+    
+    speech.onend = () => setPlayingId(null);
+    speech.onerror = () => setPlayingId(null);
+    
+    window.speechSynthesis.speak(speech);
   };
 
   return (

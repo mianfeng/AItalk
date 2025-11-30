@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { VocabularyItem, StudyItem, DailyStats, BackupData, ItemType, SessionResult, ConversationSession } from './types';
 import { generateDailyContent, generateInitialTopic, generateTopicFromVocab } from './services/contentGen';
 import { getTotalLocalItemsCount } from './services/localRepository';
@@ -42,9 +42,6 @@ const App: React.FC = () => {
   // Persistence for Study Index
   const [studyIndex, setStudyIndex] = useState(0); 
   const [isGenerating, setIsGenerating] = useState(false);
-
-  // Global Audio Cache for Study Session
-  const audioCache = useRef<Map<string, string>>(new Map());
 
   // Persistence
   useEffect(() => {
@@ -174,7 +171,6 @@ const App: React.FC = () => {
 
         setTodaysItems([...reviewSessionItems, ...newSessionItems]);
         setStudyIndex(0); 
-        audioCache.current.clear(); 
         
         setMode('study');
     } catch (e) {
@@ -302,7 +298,6 @@ const App: React.FC = () => {
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
     setTodaysItems([]); 
     setStudyIndex(0);
-    audioCache.current.clear(); 
     setMode('dashboard'); 
   };
 
@@ -525,7 +520,6 @@ const App: React.FC = () => {
                     initialIndex={studyIndex}
                     onProgress={handleStudyProgress}
                     onComplete={handleStudyComplete}
-                    audioCache={audioCache.current} 
                 />
             </div>
         )}
