@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart, Settings2 } from 'lucide-react';
 import { evaluatePronunciation } from '../services/contentGen';
 
 interface StudySessionProps {
@@ -16,6 +16,10 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const [isPlaying, setIsPlaying] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   
+  // TTS State
+  const [speechRate, setSpeechRate] = useState(1.0); // 1.0, 0.75, 0.5
+  const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
+
   // New State for "Rate First" flow
   // null = not rated yet (Front side)
   // boolean = rated (Back side), true = mastered, false = review
@@ -31,6 +35,24 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
       });
       setCollectedIds(initialSaved);
   }, [items]);
+
+  // Load Voices logic
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      // Priority: Google US English > Microsoft Zira/David > Any US English > Any English
+      const bestVoice = voices.find(v => v.name.includes('Google US English')) || 
+                        voices.find(v => v.name.includes('Zira') || v.name.includes('David')) ||
+                        voices.find(v => v.lang === 'en-US') ||
+                        voices.find(v => v.lang.startsWith('en'));
+      
+      if (bestVoice) setPreferredVoice(bestVoice);
+    };
+
+    loadVoices();
+    // Chrome loads voices asynchronously
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }, []);
 
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'evaluating' | 'result'>('idle');
   const [pronunciationResult, setPronunciationResult] = useState<{score: number, feedback: string} | null>(null);
@@ -104,7 +126,12 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   };
 
   const playTTS = (text: string) => {
-    if (isPlaying) return;
+    if (isPlaying) {
+        window.speechSynthesis.cancel();
+        setIsPlaying(false);
+        return;
+    }
+    
     setIsPlaying(true);
     
     // Cancel any previous utterance
@@ -112,7 +139,11 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
 
     const speech = new SpeechSynthesisUtterance(text);
     speech.lang = 'en-US';
-    speech.rate = 1.0;
+    speech.rate = speechRate;
+    
+    if (preferredVoice) {
+        speech.voice = preferredVoice;
+    }
 
     speech.onend = () => {
         setIsPlaying(false);
@@ -124,6 +155,16 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     };
 
     window.speechSynthesis.speak(speech);
+  };
+
+  const toggleSpeed = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      // Cycle: 1.0 -> 0.75 -> 0.5 -> 1.0
+      setSpeechRate(prev => {
+          if (prev === 1.0) return 0.75;
+          if (prev === 0.75) return 0.5;
+          return 1.0;
+      });
   };
 
   const toggleRecording = async (e: React.MouseEvent) => {
@@ -224,14 +265,23 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                  {currentItem.pronunciation && (
                      <p className="text-slate-400 font-mono text-sm">{currentItem.pronunciation}</p>
                  )}
-                 {/* Only play audio button on front, no translation */}
-                 <button 
-                    onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
-                    disabled={isPlaying}
-                    className="mt-8 p-3 bg-slate-700 rounded-full hover:bg-slate-600 text-blue-400 transition-colors disabled:opacity-50"
-                 >
-                    {isPlaying ? <Loader2 size={24} className="animate-spin" /> : <Volume2 size={24} />}
-                 </button>
+                 {/* Audio Control Row */}
+                 <div className="mt-8 flex items-center gap-3">
+                     <button 
+                        onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
+                        className={`p-3 rounded-full hover:bg-slate-600 transition-colors ${isPlaying ? 'bg-slate-600 text-blue-400' : 'bg-slate-700 text-slate-200'}`}
+                     >
+                        {isPlaying ? <Loader2 size={24} className="animate-spin" /> : <Volume2 size={24} />}
+                     </button>
+                     
+                     <button 
+                        onClick={toggleSpeed}
+                        className="h-10 px-3 rounded-full bg-slate-700/50 border border-slate-600 text-xs font-mono text-slate-400 hover:text-white hover:bg-slate-600 transition-colors"
+                        title="点击调整语速"
+                     >
+                         {speechRate}x
+                     </button>
+                 </div>
              </div>
 
              {/* Back */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { VocabularyItem } from '../types';
 import { ArrowLeft, Volume2, Loader2 } from 'lucide-react';
 
@@ -9,14 +9,37 @@ interface ReviewListProps {
 
 export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const bestVoice = voices.find(v => v.name.includes('Google US English')) || 
+                        voices.find(v => v.name.includes('Zira') || v.name.includes('David')) ||
+                        voices.find(v => v.lang === 'en-US') ||
+                        voices.find(v => v.lang.startsWith('en'));
+      
+      if (bestVoice) setPreferredVoice(bestVoice);
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }, []);
 
   const playTTS = (text: string, id: string) => {
-    if (playingId) return;
+    if (playingId) {
+        window.speechSynthesis.cancel();
+        setPlayingId(null);
+        return;
+    }
     setPlayingId(id);
     
     window.speechSynthesis.cancel();
     const speech = new SpeechSynthesisUtterance(text);
     speech.lang = 'en-US';
+    if (preferredVoice) {
+        speech.voice = preferredVoice;
+    }
     
     speech.onend = () => setPlayingId(null);
     speech.onerror = () => setPlayingId(null);
@@ -49,8 +72,7 @@ export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
               <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex gap-4">
                 <button 
                   onClick={() => playTTS(item.text, item.id)}
-                  disabled={!!playingId}
-                  className="shrink-0 w-10 h-10 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-blue-400 transition-colors mt-1 disabled:opacity-50"
+                  className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors mt-1 ${playingId === item.id ? 'bg-slate-700 text-blue-400' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'}`}
                 >
                   {playingId === item.id ? <Loader2 size={18} className="animate-spin" /> : <Volume2 size={18} />}
                 </button>
