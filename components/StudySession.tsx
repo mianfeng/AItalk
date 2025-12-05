@@ -324,7 +324,14 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                      </div>
 
                      <div className="flex items-center gap-3 mb-2 w-full justify-center px-2">
-                        <h3 className="text-lg md:text-xl font-bold text-slate-200 text-center truncate">{currentItem.text}</h3>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
+                            className="p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors shrink-0"
+                        >
+                           {isPlaying ? <Loader2 size={16} className="animate-spin" /> : <Volume2 size={16} />}
+                        </button>
+
+                        <h3 className="text-lg md:text-xl font-bold text-slate-200 text-center truncate max-w-[60%]">{currentItem.text}</h3>
                         
                         <button
                             onClick={toggleRecording}

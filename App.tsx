@@ -7,7 +7,7 @@ import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2, Bell } from 'lucide-react';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2, Bell, Shuffle } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'review';
 
@@ -179,6 +179,20 @@ const App: React.FC = () => {
     } finally {
         setIsGenerating(false);
     }
+  };
+
+  const startRandomReview = () => {
+    if (vocabList.length === 0) {
+      alert("您的词库还是空的，请先开始每日学习！");
+      return;
+    }
+
+    // Shuffle and pick 20
+    const selection = [...vocabList].sort(() => 0.5 - Math.random()).slice(0, 20);
+    
+    setTodaysItems(selection);
+    setStudyIndex(0);
+    setMode('study');
   };
 
   const initConversation = async () => {
@@ -401,7 +415,7 @@ const App: React.FC = () => {
            <div className="h-full overflow-y-auto p-4 md:p-6 pb-24 max-w-2xl mx-auto flex flex-col items-center">
               
               {/* Daily Progress / Action Cards (Consolidated) */}
-              <div className="w-full mb-6 md:mb-8 shrink-0">
+              <div className="w-full mb-6 shrink-0">
                   <div className="flex justify-between items-end mb-4">
                       <h2 className="text-xl md:text-2xl font-bold text-white">今日练习</h2>
                       <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium bg-emerald-950/30 px-3 py-1 rounded-full border border-emerald-900/50">
@@ -504,19 +518,36 @@ const App: React.FC = () => {
                   </div>
               </div>
 
-              {/* Review Entry */}
-              {learnedToday.length > 0 && (
-                <button 
-                    onClick={() => setMode('review')}
-                    className="w-full mb-8 bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center justify-between group transition-colors"
-                >
-                    <div className="flex items-center gap-3">
-                        <History size={18} className="text-slate-500 group-hover:text-emerald-400 transition-colors" />
-                        <span className="text-slate-300 font-medium text-sm">回顾今日所学单词 ({learnedToday.length})</span>
+              {/* Extra Actions Row */}
+              <div className="w-full mb-8 grid grid-cols-2 gap-3 shrink-0">
+                  <button 
+                    onClick={startRandomReview}
+                    className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center gap-3 group transition-colors justify-center"
+                  >
+                        <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400 group-hover:bg-indigo-500/20 transition-colors">
+                            <Shuffle size={18} />
+                        </div>
+                        <span className="text-slate-300 font-medium text-sm">随心练 (20词)</span>
+                  </button>
+
+                  {/* Show Review Today button IF there is data, OR just a disabled state? Let's show distinct state. */}
+                  {learnedToday.length > 0 ? (
+                      <button 
+                        onClick={() => setMode('review')}
+                        className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center gap-3 group transition-colors justify-center"
+                      >
+                          <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
+                              <History size={18} />
+                          </div>
+                          <span className="text-slate-300 font-medium text-sm">回顾今日 ({learnedToday.length})</span>
+                      </button>
+                  ) : (
+                    <div className="bg-slate-900/20 border border-slate-800/50 p-4 rounded-xl flex items-center gap-3 justify-center opacity-50 cursor-not-allowed">
+                        <History size={18} className="text-slate-600" />
+                        <span className="text-slate-600 font-medium text-sm">暂无今日记录</span>
                     </div>
-                    <ArrowRight size={16} className="text-slate-600 group-hover:text-slate-300" />
-                </button>
-              )}
+                  )}
+              </div>
 
               {/* Daily Quote Section */}
               <div className="w-full mb-6 md:mb-8 shrink-0">
