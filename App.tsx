@@ -7,7 +7,7 @@ import { ConversationMode } from './components/ConversationMode';
 import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2, Bell, Shuffle } from 'lucide-react';
+import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2, Bell, Shuffle, MessageCircle } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'review';
 
@@ -254,6 +254,27 @@ const App: React.FC = () => {
       } finally {
           setIsGenerating(false);
       }
+  };
+
+  const startFreeTalk = () => {
+      if (activeSession) {
+          if (confirm("当前已有进行中的对话，是否结束并开始新的自由对话？")) {
+              setActiveSession(null);
+          } else {
+              setMode('live');
+              return;
+          }
+      }
+
+      const newSession: ConversationSession = {
+          topic: "自由对话 (Free Talk)",
+          targetWords: [],
+          history: [],
+          lastUpdated: Date.now()
+      };
+      
+      setActiveSession(newSession);
+      setMode('live');
   };
 
   const handleConversationUpdate = (updatedSession: ConversationSession) => {
@@ -504,13 +525,13 @@ const App: React.FC = () => {
                          
                          <div className="relative z-10">
                              <div className="text-3xl font-bold text-slate-100 mb-1">
-                                 {activeSession ? "继续对话" : "口语实战"}
+                                 {activeSession ? "继续对话" : "场景演练"}
                              </div>
                              <p className="text-sm text-slate-500 truncate">
                                  {activeSession ? `话题: ${activeSession.topic}` : "模拟真实对话场景"}
                              </p>
                              <div className="mt-3 text-xs text-blue-300/60 flex items-center gap-1">
-                                 {activeSession ? "点击恢复进度" : "随时开始 · 智能纠音"}
+                                 {activeSession ? "点击恢复进度" : "智能纠音 · 场景模拟"}
                              </div>
                          </div>
                       </button>
@@ -519,7 +540,17 @@ const App: React.FC = () => {
               </div>
 
               {/* Extra Actions Row */}
-              <div className="w-full mb-8 grid grid-cols-2 gap-3 shrink-0">
+              <div className="w-full mb-8 grid grid-cols-2 md:grid-cols-3 gap-3 shrink-0">
+                  <button 
+                    onClick={startFreeTalk}
+                    className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center gap-3 group transition-colors justify-center"
+                  >
+                        <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400 group-hover:bg-purple-500/20 transition-colors">
+                            <MessageCircle size={18} />
+                        </div>
+                        <span className="text-slate-300 font-medium text-sm">自由对话 (Free Talk)</span>
+                  </button>
+
                   <button 
                     onClick={startRandomReview}
                     className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center gap-3 group transition-colors justify-center"
@@ -534,7 +565,7 @@ const App: React.FC = () => {
                   {learnedToday.length > 0 ? (
                       <button 
                         onClick={() => setMode('review')}
-                        className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center gap-3 group transition-colors justify-center"
+                        className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 p-4 rounded-xl flex items-center gap-3 group transition-colors justify-center col-span-2 md:col-span-1"
                       >
                           <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
                               <History size={18} />
@@ -542,7 +573,7 @@ const App: React.FC = () => {
                           <span className="text-slate-300 font-medium text-sm">回顾今日 ({learnedToday.length})</span>
                       </button>
                   ) : (
-                    <div className="bg-slate-900/20 border border-slate-800/50 p-4 rounded-xl flex items-center gap-3 justify-center opacity-50 cursor-not-allowed">
+                    <div className="bg-slate-900/20 border border-slate-800/50 p-4 rounded-xl flex items-center gap-3 justify-center opacity-50 cursor-not-allowed col-span-2 md:col-span-1">
                         <History size={18} className="text-slate-600" />
                         <span className="text-slate-600 font-medium text-sm">暂无今日记录</span>
                     </div>

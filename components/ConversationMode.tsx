@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw, Target, X, Save } from 'lucide-react';
+import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw, Target, X, Save, MessageSquare, MapPin, User } from 'lucide-react';
 import { analyzeAudioResponse, generateSpeech } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
 import { AnalysisResult, ItemType, VocabularyItem, ConversationSession } from '../types';
@@ -37,6 +37,9 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
 
   // Audio Cache
   const audioCache = useRef<Map<string, string>>(new Map());
+
+  // Check if it is the start of a Free Talk session
+  const isFreeTalkStart = history.length === 0 && currentTopic.includes("Free Talk");
 
   // Check if topic updated in props (shouldn't really happen inside this view, but good safety)
   useEffect(() => {
@@ -122,7 +125,10 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
                 const base64String = (reader.result as string).split(',')[1];
                 
                 // Call API
-                const result = await analyzeAudioResponse(base64String, currentTopic, history);
+                // If it's Free Talk start, we pass a special context instruction instead of the generic topic title
+                const topicContext = isFreeTalkStart ? "The user is initiating a conversation freely. Please respond naturally to whatever they say." : currentTopic;
+                
+                const result = await analyzeAudioResponse(base64String, topicContext, history);
                 setAnalysis(result);
                 setState('reviewing');
             };
@@ -148,7 +154,11 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
 
   const handleContinue = () => {
     if (analysis) {
-        const newHistory = [...history, { user: analysis.userTranscript, ai: currentTopic }];
+        // For Free Talk start, the "AI" turn was essentially "Silence/Listening", so we record it as such or empty
+        // to maintain the turn-taking structure.
+        const aiTurnContent = isFreeTalkStart ? "(Listening...)" : currentTopic;
+        
+        const newHistory = [...history, { user: analysis.userTranscript, ai: aiTurnContent }];
         updateHistory(newHistory, analysis.replyText);
         
         setAnalysis(null);
@@ -210,7 +220,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
 
       <div className="flex-1 flex flex-col items-center p-4 max-w-3xl mx-auto w-full gap-6 pb-20">
           
-          {/* Target Vocabulary Display */}
+          {/* Target Vocabulary Display (Only if not empty) */}
           {targetWords.length > 0 && (
               <div className="w-full bg-slate-900/50 border border-indigo-500/20 rounded-xl p-3">
                   <div className="flex items-center gap-2 mb-2 text-indigo-400 text-xs font-bold uppercase tracking-wide">
@@ -227,25 +237,40 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
               </div>
           )}
 
-          {/* AI Topic Bubble */}
-          <div className="w-full">
-             <div className="text-xs text-slate-500 mb-2 uppercase tracking-wider font-bold flex justify-between">
-                 <span>AI 话题 / 问题</span>
-                 {history.length > 0 && <span className="text-slate-600">已对话 {history.length} 轮</span>}
-             </div>
-             <div className="bg-slate-800/50 border border-slate-700 rounded-2xl p-6 relative">
-                 <p className="text-lg md:text-xl font-medium text-slate-100 pr-10 leading-relaxed">
-                    {currentTopic}
-                 </p>
-                 <button 
-                    onClick={() => playTTS(currentTopic, 'topic')}
-                    disabled={!!playingId}
-                    className="absolute right-4 top-4 p-2 text-slate-500 hover:text-blue-400 bg-slate-900/50 rounded-full transition-colors disabled:opacity-50"
-                 >
-                     {playingId === 'topic' ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
-                 </button>
-             </div>
-          </div>
+          {/* AI Topic/Context Bubble */}
+          {!isFreeTalkStart ? (
+              <div className="w-full">
+                 <div className="text-xs text-slate-500 mb-2 uppercase tracking-wider font-bold flex justify-between items-center">
+                     <span className="flex items-center gap-1">
+                        {history.length === 0 ? <MapPin size={14} /> : <MessageSquare size={14} />}
+                        {history.length === 0 ? "当前场景 / 任务" : "AI 回复"}
+                     </span>
+                     {history.length > 0 && <span className="text-slate-600 bg-slate-900 px-2 py-0.5 rounded-full">第 {history.length + 1} 轮</span>}
+                 </div>
+                 
+                 <div className={`border rounded-2xl p-6 relative ${history.length === 0 ? 'bg-indigo-900/20 border-indigo-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
+                     <p className="text-lg md:text-xl font-medium text-slate-100 pr-10 leading-relaxed">
+                        {currentTopic}
+                     </p>
+                     <button 
+                        onClick={() => playTTS(currentTopic, 'topic')}
+                        disabled={!!playingId}
+                        className="absolute right-4 top-4 p-2 text-slate-500 hover:text-blue-400 bg-slate-900/50 rounded-full transition-colors disabled:opacity-50"
+                     >
+                         {playingId === 'topic' ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
+                     </button>
+                 </div>
+              </div>
+          ) : (
+              // Free Talk Start UI
+              <div className="w-full flex flex-col items-center py-6 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="p-3 bg-purple-500/10 rounded-full mb-3 text-purple-400">
+                      <User size={32} />
+                  </div>
+                  <h2 className="text-xl font-bold text-white mb-1">你来开启话题</h2>
+                  <p className="text-slate-400 text-sm">点击下方录音，说说你想聊什么...</p>
+              </div>
+          )}
 
           {/* Recording Interface (Only visible when not reviewing) */}
           {state !== 'reviewing' && (
@@ -255,7 +280,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
                   {lastBetterVersion && state === 'idle' && (
                       <div className="mb-6 w-full max-w-md bg-emerald-900/20 border border-emerald-500/20 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
                           <div className="text-emerald-500 text-xs font-bold mb-2 flex items-center gap-1">
-                              <Sparkles size={12} /> 参考表达 (建议照着读)
+                              <Sparkles size={12} /> 上一次的参考表达 (建议照着读)
                           </div>
                           <p className="text-emerald-100/90 text-sm leading-relaxed">{lastBetterVersion}</p>
                           <button 
@@ -273,7 +298,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
                           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
                               <RefreshCcw className="animate-spin text-slate-400" />
                           </div>
-                          <p className="text-slate-400 text-sm">正在分析...</p>
+                          <p className="text-slate-400 text-sm">AI 正在分析你的回答...</p>
                       </div>
                   ) : (
                       <div className="flex flex-col items-center gap-6">
@@ -293,7 +318,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
                               </button>
                           </div>
                           <p className="text-slate-500 text-sm font-medium">
-                              {state === 'recording' ? '正在录音... 点击停止' : '点击开始回答'}
+                              {state === 'recording' ? '正在录音... 点击停止' : (isFreeTalkStart ? '点击开始发起对话' : '点击开始回答')}
                           </p>
                       </div>
                   )}
@@ -303,7 +328,7 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
           {/* Analysis Result (Only visible when reviewing) */}
           {state === 'reviewing' && analysis && (
               <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
                       
                       {/* Header Score */}
                       <div className="bg-slate-800/50 px-6 py-4 flex justify-between items-center border-b border-slate-800">
@@ -396,20 +421,20 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
 
                       </div>
 
-                      {/* Footer Action */}
-                      <div className="p-4 bg-slate-950 border-t border-slate-900 flex justify-between items-center">
+                      {/* Footer Action - Decision Point */}
+                      <div className="p-4 bg-slate-950 border-t border-slate-900 flex flex-col sm:flex-row justify-between items-center gap-3">
                           <button
                             onClick={handleTryAgain}
-                            className="text-slate-400 hover:text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors hover:bg-slate-900"
+                            className="w-full sm:w-auto text-slate-400 hover:text-white px-4 py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors bg-slate-900 hover:bg-slate-800 border border-slate-800"
                           >
-                              <RotateCcw size={16} /> 再试一次
+                              <RotateCcw size={16} /> 不满意，重录
                           </button>
                           
                           <button 
                             onClick={handleContinue}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors"
+                            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-blue-900/20"
                           >
-                              继续对话 <ArrowRight size={18} />
+                              <MessageSquare size={18} /> 发送给 AI (Continue)
                           </button>
                       </div>
                   </div>
