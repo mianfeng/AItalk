@@ -4,7 +4,6 @@ import { generateDailyContent, generateInitialTopic, generateTopicFromVocab } fr
 import { getTotalLocalItemsCount } from './services/localRepository';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
-import { DailyQuote } from './components/DailyQuote';
 import { ReviewList } from './components/ReviewList';
 import { SettingsModal } from './components/SettingsModal';
 import { Mic, Book, CheckCircle, Flame, GraduationCap, RefreshCw, Play, X, History, Settings, AlertTriangle, ArrowRight, Loader2, BarChart2, Bell, Shuffle, MessageCircle } from 'lucide-react';
@@ -578,11 +577,6 @@ const App: React.FC = () => {
                         <span className="text-slate-600 font-medium text-sm">暂无今日记录</span>
                     </div>
                   )}
-              </div>
-
-              {/* Daily Quote Section */}
-              <div className="w-full mb-6 md:mb-8 shrink-0">
-                  <DailyQuote />
               </div>
 
               {/* Recent Vocab List (Short Preview) */}

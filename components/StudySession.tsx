@@ -275,9 +275,16 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           >
              {/* Front - Compact padding and typography */}
              <div className="absolute inset-0 backface-hidden bg-slate-800 border-2 border-slate-700 rounded-2xl flex flex-col items-center justify-center p-3 shadow-xl">
-                 <span className="text-[10px] font-semibold tracking-widest text-emerald-400 uppercase mb-2 bg-emerald-900/30 px-2.5 py-0.5 rounded-full">
-                    {currentItem.type === 'word' ? '单词' : (currentItem.type === 'sentence' ? '句子' : '习语')}
-                 </span>
+                 <div className="flex items-center gap-2 mb-2">
+                    {currentLevel === 0 && (
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-900/40 px-2 py-0.5 rounded border border-amber-700/50 shadow-sm">
+                            新
+                        </span>
+                    )}
+                    <span className="text-[10px] font-semibold tracking-widest text-emerald-400 uppercase bg-emerald-900/30 px-2.5 py-0.5 rounded-full">
+                        {currentItem.type === 'word' ? '单词' : (currentItem.type === 'sentence' ? '句子' : '习语')}
+                    </span>
+                 </div>
                  
                  <h2 className="text-xl md:text-2xl font-bold text-center text-slate-100 mb-2 select-none px-2 break-words max-w-full leading-tight">
                     {currentItem.text}
