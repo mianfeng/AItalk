@@ -65,6 +65,54 @@ export function createBlob(data: Float32Array): { data: string; mimeType: string
 }
 
 /**
+ * Wraps raw PCM data in a WAV header to make it a playable Blob.
+ */
+export function pcmToWav(base64Pcm: string, sampleRate: number = 24000): Blob {
+  const rawPcm = decode(base64Pcm);
+  const buffer = new ArrayBuffer(44 + rawPcm.length);
+  const view = new DataView(buffer);
+
+  /* RIFF identifier */
+  writeString(view, 0, 'RIFF');
+  /* file length */
+  view.setUint32(4, 32 + rawPcm.length, true);
+  /* RIFF type */
+  writeString(view, 8, 'WAVE');
+  /* format chunk identifier */
+  writeString(view, 12, 'fmt ');
+  /* format chunk length */
+  view.setUint32(16, 16, true);
+  /* sample format (raw PCM) */
+  view.setUint16(20, 1, true);
+  /* channel count */
+  view.setUint16(22, 1, true);
+  /* sample rate */
+  view.setUint32(24, sampleRate, true);
+  /* byte rate (sample rate * block align) */
+  view.setUint32(28, sampleRate * 2, true);
+  /* block align (channel count * bytes per sample) */
+  view.setUint16(32, 2, true);
+  /* bits per sample */
+  view.setUint16(34, 16, true);
+  /* data chunk identifier */
+  writeString(view, 36, 'data');
+  /* data chunk length */
+  view.setUint32(40, rawPcm.length, true);
+
+  // Write PCM data
+  const pcmBytes = new Uint8Array(buffer, 44);
+  pcmBytes.set(rawPcm);
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function writeString(view: DataView, offset: number, string: string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+/**
  * Plays raw PCM audio (24kHz mono) from a base64 string.
  * Used for Gemini TTS playback.
  */
@@ -94,11 +142,6 @@ export async function playAudioFromBase64(base64String: string): Promise<void> {
 
 /**
  * Gets the best available English voice.
- * Priorities: 
- * 1. User saved preference (URI)
- * 2. Mobile High Quality (Premium, Enhanced, Siri)
- * 3. Google/Microsoft Online Voices
- * 4. Standard en-US
  */
 export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?: string | null): SpeechSynthesisVoice | null {
   if (savedVoiceURI) {
@@ -106,27 +149,21 @@ export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?
     if (saved) return saved;
   }
 
-  // Filter for English voices first to avoid iterating all
   const englishVoices = voices.filter(v => v.lang.startsWith('en'));
 
-  // 1. iOS/Mac High Quality (Samantha Enhanced, Daniel Enhanced, Siri)
   const iosPremium = englishVoices.find(v => 
     (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Siri')) && v.lang.includes('US')
   );
   if (iosPremium) return iosPremium;
 
-  // 2. Google Voices (Android/Chrome) - "Google US English" is usually the best online one
   const googleBest = englishVoices.find(v => v.name === 'Google US English');
   if (googleBest) return googleBest;
 
-  // 3. Microsoft Voices (Edge/Windows)
   const msBest = englishVoices.find(v => (v.name.includes('Zira') || v.name.includes('David')) && v.lang.includes('US'));
   if (msBest) return msBest;
 
-  // 4. Any US English
   const anyUS = englishVoices.find(v => v.lang === 'en-US');
   if (anyUS) return anyUS;
 
-  // 5. Any English
   return englishVoices[0] || null;
 }

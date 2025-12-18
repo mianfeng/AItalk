@@ -2,7 +2,8 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
 import { getLocalContent } from "./localRepository";
 
-const modelName = "gemini-2.5-flash";
+// Using recommended model for text tasks
+const modelName = "gemini-3-flash-preview";
 const ttsModelName = "gemini-2.5-flash-preview-tts";
 
 function getClient() {
@@ -11,6 +12,7 @@ function getClient() {
     console.warn("API_KEY is not set. Content generation will fail.");
     return null;
   }
+  // Initialize with a named parameter as per guidelines
   return new GoogleGenAI({ apiKey });
 }
 
@@ -27,13 +29,14 @@ export async function generateSpeech(text: string): Promise<string | null> {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Puck' } // Male voice
+            // Available voice names are Puck, Charon, Kore, Fenrir, and Zephyr
+            prebuiltVoiceConfig: { voiceName: 'Puck' } 
           },
         },
       },
     });
     
-    // Extract base64 audio
+    // Extract audio bytes from inlineData part
     return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
   } catch (error) {
     console.error("TTS generation failed:", error);
@@ -46,7 +49,6 @@ export async function generateDailyContent(count: number = 15, currentVocabList:
   const existingSet = new Set(currentVocabList.map(v => v.text));
 
   // RATIO STRATEGY: ~2/3 Words, ~1/3 Sentences/Idioms
-  // e.g. For count=15: 10 Words, 5 Sentences
   const wordCount = Math.floor(count * 0.66);
   const sentenceCount = count - wordCount;
 
@@ -54,7 +56,6 @@ export async function generateDailyContent(count: number = 15, currentVocabList:
   const newWords = getLocalContent(wordCount, existingSet, 'word');
   
   // 2. Get Sentences/Idioms
-  // Note: Add the newly picked words to existingSet temporarily to avoid duplication if repo has mixed content issues (unlikely but safe)
   newWords.forEach(w => existingSet.add(w.text));
   const newSentences = getLocalContent(sentenceCount, existingSet, 'sentence');
 
@@ -63,12 +64,11 @@ export async function generateDailyContent(count: number = 15, currentVocabList:
   let fillers: StudyItem[] = [];
   if (needed > 0) {
       newSentences.forEach(s => existingSet.add(s.text));
-      fillers = getLocalContent(needed, existingSet); // Get anything available
+      fillers = getLocalContent(needed, existingSet);
   }
 
   const combined = [...newWords, ...newSentences, ...fillers];
   
-  // Shuffle the combined result so user gets a mix
   return combined.sort(() => 0.5 - Math.random());
 }
 
@@ -103,8 +103,9 @@ export async function generateDailyQuote(): Promise<DailyQuoteItem> {
       }
     });
 
+    // Access .text property directly (not text())
     if (response.text) {
-      return JSON.parse(response.text);
+      return JSON.parse(response.text.trim());
     }
     throw new Error("No data");
   } catch (e) {
@@ -135,7 +136,6 @@ export async function analyzeAudioResponse(
     };
   }
   
-  // Construct context from history
   const historyText = history.map(h => `AI: ${h.ai}\nUser: ${h.user}`).join('\n');
   
   const prompt = `
@@ -161,7 +161,7 @@ export async function analyzeAudioResponse(
       contents: {
         parts: [
           { text: prompt },
-          { inlineData: { mimeType: "audio/webm", data: audioBase64 } } // Assuming webm from MediaRecorder
+          { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
         ]
       },
       config: {
@@ -182,8 +182,9 @@ export async function analyzeAudioResponse(
       }
     });
 
+    // Access .text property directly
     if (response.text) {
-      return JSON.parse(response.text);
+      return JSON.parse(response.text.trim());
     }
     throw new Error("Empty response");
   } catch (error) {
@@ -241,8 +242,9 @@ export async function evaluatePronunciation(
       }
     });
 
+    // Access .text property directly
     if (response.text) {
-      return JSON.parse(response.text);
+      return JSON.parse(response.text.trim());
     }
     return { score: 0, feedback: "Could not analyze" };
   } catch (error) {
@@ -289,6 +291,7 @@ export async function generateTopicFromVocab(items: StudyItem[]): Promise<string
         model: modelName,
         contents: prompt
     });
+    // Access .text property directly
     return response.text?.trim() || "Daily Conversation";
   } catch (e) {
     return "Daily Practice";
