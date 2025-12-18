@@ -41,7 +41,6 @@ export async function decodeAudioData(
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
     for (let i = 0; i < frameCount; i++) {
-      // Convert Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
       channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
     }
   }
@@ -144,21 +143,39 @@ export async function playAudioFromBase64(base64String: string): Promise<void> {
  * Gets the best available English voice.
  */
 export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?: string | null): SpeechSynthesisVoice | null {
+  if (!voices || voices.length === 0) return null;
+  
   if (savedVoiceURI) {
     const saved = voices.find(v => v.voiceURI === savedVoiceURI);
     if (saved) return saved;
   }
 
   const englishVoices = voices.filter(v => v.lang.startsWith('en'));
+  if (englishVoices.length === 0) return voices[0] || null;
 
-  const iosPremium = englishVoices.find(v => 
-    (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Siri')) && v.lang.includes('US')
+  // 1. SUPREME PRIORITY: Next-gen Kaldi / Sherpa-ONNX (The high-quality offline engine)
+  const kaldiEngine = englishVoices.find(v => 
+    v.name.toLowerCase().includes('kaldi') || 
+    v.name.toLowerCase().includes('sherpa') || 
+    v.name.toLowerCase().includes('kokoro')
   );
-  if (iosPremium) return iosPremium;
+  if (kaldiEngine) return kaldiEngine;
 
+  // 2. Prioritize Premium/Enhanced/Natural voices (standard mobile high quality)
+  const premium = englishVoices.find(v => 
+    (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Natural')) && v.lang.includes('US')
+  );
+  if (premium) return premium;
+
+  // 3. Specific mobile favorites (Siri is usually the best on iOS)
+  const siri = englishVoices.find(v => v.name.includes('Siri') && v.lang.includes('US'));
+  if (siri) return siri;
+
+  // 4. Google High Quality
   const googleBest = englishVoices.find(v => v.name === 'Google US English');
   if (googleBest) return googleBest;
 
+  // 5. Default Microsoft/System fallbacks
   const msBest = englishVoices.find(v => (v.name.includes('Zira') || v.name.includes('David')) && v.lang.includes('US'));
   if (msBest) return msBest;
 
