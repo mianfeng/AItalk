@@ -141,7 +141,7 @@ export async function playAudioFromBase64(base64String: string): Promise<void> {
 // --- Browser TTS Utilities ---
 
 /**
- * Gets the best available English voice.
+ * Gets the best available English voice with high-quality preference.
  */
 export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?: string | null): SpeechSynthesisVoice | null {
   if (savedVoiceURI) {
@@ -151,14 +151,21 @@ export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?
 
   const englishVoices = voices.filter(v => v.lang.startsWith('en'));
 
-  const iosPremium = englishVoices.find(v => 
-    (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Siri')) && v.lang.includes('US')
+  // 1. Prioritize Premium/Enhanced voices (often much higher quality on mobile)
+  const premium = englishVoices.find(v => 
+    (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Natural')) && v.lang.includes('US')
   );
-  if (iosPremium) return iosPremium;
+  if (premium) return premium;
 
+  // 2. Specific mobile favorites (Siri is usually the best on iOS)
+  const siri = englishVoices.find(v => v.name.includes('Siri') && v.lang.includes('US'));
+  if (siri) return siri;
+
+  // 3. Google High Quality
   const googleBest = englishVoices.find(v => v.name === 'Google US English');
   if (googleBest) return googleBest;
 
+  // 4. Default Microsoft/System fallbacks
   const msBest = englishVoices.find(v => (v.name.includes('Zira') || v.name.includes('David')) && v.lang.includes('US'));
   if (msBest) return msBest;
 
