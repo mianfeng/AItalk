@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
-import { pcmToWav, getPreferredVoice } from '../services/audioUtils';
+import { pcmToWav } from '../services/audioUtils';
 
 interface ShadowingModeProps {
   onBack: () => void;
@@ -14,7 +14,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   
   // Voice Mode: 'local' (instant) or 'ai' (quality)
   const [voiceMode, setVoiceMode] = useState<'local' | 'ai'>('local');
-  const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
   
   // Audio State
   const [aiAudioUrl, setAiAudioUrl] = useState<string | null>(null);
@@ -39,17 +38,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const audioChunksRef = useRef<Blob[]>([]);
   const userAudioRef = useRef<HTMLAudioElement>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
-
-  // Initialize Voices
-  useEffect(() => {
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const best = getPreferredVoice(voices, localStorage.getItem('lingua_voice_uri'));
-      setPreferredVoice(best);
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-  }, []);
 
   const stopAllRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -96,6 +84,8 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         const url = URL.createObjectURL(wavBlob);
         setAiAudioUrl(url);
         return url;
+      } else {
+        alert("AI语音生成失败，请尝试使用极速模式");
       }
     } catch (e) {
       console.error(e);
@@ -114,43 +104,33 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       return;
     }
 
-    // SMALL TIMEOUT for reliability on mobile
-    setTimeout(() => {
-        const utterance = new SpeechSynthesisUtterance(remainingText);
-        utterance.lang = 'en-US';
-        utterance.rate = aiSpeed;
-        
-        // IMPORTANT: If preferredVoice is null, we don't set it, 
-        // letting the browser use whatever is set as "Default" in system.
-        if (preferredVoice) {
-          utterance.voice = preferredVoice;
-        }
+    const utterance = new SpeechSynthesisUtterance(remainingText);
+    utterance.lang = 'en-US';
+    utterance.rate = aiSpeed;
+    
+    utterance.onboundary = (event) => {
+      if (event.name === 'word' && !isSeekingRef.current) {
+        const absoluteCharIndex = startIndex + event.charIndex;
+        const progress = (absoluteCharIndex / practiceText.length) * 100;
+        setLocalProgress(progress);
+        localCharOffsetRef.current = absoluteCharIndex;
+      }
+    };
+    
+    utterance.onend = () => {
+      if (!isSeekingRef.current) {
+        setAiIsPlaying(false);
+        setLocalProgress(100);
+        localCharOffsetRef.current = 0;
+      }
+    };
 
-        utterance.onboundary = (event) => {
-          if (event.name === 'word' && !isSeekingRef.current) {
-            const absoluteCharIndex = startIndex + event.charIndex;
-            const progress = (absoluteCharIndex / practiceText.length) * 100;
-            setLocalProgress(progress);
-            localCharOffsetRef.current = absoluteCharIndex;
-          }
-        };
-        
-        utterance.onend = () => {
-          if (!isSeekingRef.current) {
-            setAiIsPlaying(false);
-            setLocalProgress(100);
-            localCharOffsetRef.current = 0;
-          }
-        };
+    utterance.onerror = () => {
+        setAiIsPlaying(false);
+    };
 
-        utterance.onerror = (e) => {
-            console.error("Speech Error:", e);
-            setAiIsPlaying(false);
-        };
-
-        setAiIsPlaying(true);
-        window.speechSynthesis.speak(utterance);
-    }, 50);
+    setAiIsPlaying(true);
+    window.speechSynthesis.speak(utterance);
   };
 
   const toggleAiPlay = async () => {
@@ -159,6 +139,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         window.speechSynthesis.cancel();
         setAiIsPlaying(false);
       } else {
+        // If it was at the end, restart from beginning
         const startFrom = localProgress >= 99 ? 0 : localCharOffsetRef.current;
         if (startFrom === 0) setLocalProgress(0);
         startLocalSpeech(startFrom);
@@ -166,6 +147,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       return;
     }
 
+    // AI Mode Logic
     if (!aiAudioUrl) {
       const url = await loadAiAudio();
       if (url && aiAudioRef.current) {
@@ -189,6 +171,8 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       setLocalProgress(val);
       const charIndex = Math.floor((val / 100) * practiceText.length);
       localCharOffsetRef.current = charIndex;
+      
+      // If was playing, restart from new position
       if (aiIsPlaying) {
         startLocalSpeech(charIndex);
       }
@@ -201,10 +185,12 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     }
   };
 
+  // Sync AI audio speed
   useEffect(() => {
     if (aiAudioRef.current) {
       aiAudioRef.current.playbackRate = aiSpeed;
     }
+    // If local is playing, restart with new speed
     if (voiceMode === 'local' && aiIsPlaying) {
         startLocalSpeech(localCharOffsetRef.current);
     }
@@ -264,12 +250,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     }
   };
 
-  const isHighQualityCustom = preferredVoice && (
-    preferredVoice.name.toLowerCase().includes('kaldi') || 
-    preferredVoice.name.toLowerCase().includes('sherpa') || 
-    preferredVoice.name.toLowerCase().includes('kokoro')
-  );
-  
   return (
     <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
       {/* Header */}
@@ -285,13 +265,14 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
       <div className="flex-1 p-4 md:p-6 max-w-2xl mx-auto w-full flex flex-col gap-4 pb-32">
         
+        {/* VIEW: INPUT TEXT */}
         {state === 'input' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
-              <div className="text-sm text-indigo-200/70">
-                输入练习句子。应用会自动识别系统设置中的默认语音引擎。
-              </div>
+              <p className="text-sm text-indigo-200/70">
+                输入练习句子。<b>极速模式</b>零加载，支持拖动进度条重复听细节。
+              </p>
             </div>
             
             <textarea
@@ -311,9 +292,11 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
           </div>
         )}
 
+        {/* VIEW: PRACTICE & RESULT */}
         {(state === 'practice' || state === 'processing' || state === 'result') && (
           <div className="space-y-4 animate-in fade-in zoom-in-95">
             
+            {/* The Text Card & Player Controls - Integrated for ergonomics */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl relative overflow-hidden shadow-2xl">
               
               <div className="flex items-center justify-between mb-4">
@@ -334,6 +317,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                 </div>
               </div>
 
+              {/* Click text to Play/Pause */}
               <div 
                 onClick={toggleAiPlay}
                 className={`text-xl md:text-2xl font-medium text-center leading-relaxed mb-6 cursor-pointer select-none transition-colors duration-300 ${aiIsPlaying ? 'text-blue-400' : 'text-slate-100'}`}
@@ -341,17 +325,10 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                 {practiceText}
               </div>
 
-              {voiceMode === 'local' && (
-                <div className="mb-4 bg-slate-950/50 border border-slate-800 p-2 rounded-lg flex items-center gap-2">
-                    {isHighQualityCustom ? <Sparkles size={12} className="text-emerald-500" /> : <Volume2 size={12} className="text-slate-500" />}
-                    <span className="text-[9px] text-slate-400">
-                        当前引擎: <b>{preferredVoice ? preferredVoice.name : "系统默认 (System Default)"}</b>
-                    </span>
-                </div>
-              )}
-
+              {/* PLAYER BAR - High positioning for thumb reach */}
               <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl">
                  <div className="flex flex-col gap-4">
+                    {/* Progress Slider (Unified for both modes) */}
                     <div className="flex items-center gap-3">
                         <span className="text-[10px] font-mono text-slate-500 w-8">
                             {voiceMode === 'ai' ? Math.floor(aiCurrentTime) : Math.floor((localProgress / 100) * practiceText.length)}
@@ -391,17 +368,14 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                              (aiIsPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />)}
                         </button>
 
-                        <div className="w-[100px] flex justify-end">
-                            {voiceMode === 'local' && (
-                                <div className="flex flex-col items-end">
-                                    <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">极速模式</span>
-                                </div>
-                            )}
+                        <div className="w-[80px] flex justify-end">
+                            {voiceMode === 'local' && <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">本地极速</span>}
                         </div>
                     </div>
                  </div>
               </div>
 
+              {/* Hidden Audio Element for AI Mode */}
               {voiceMode === 'ai' && aiAudioUrl && (
                   <audio 
                     ref={aiAudioRef} 
@@ -420,7 +394,9 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
               )}
             </div>
 
+            {/* RECORDING / ACTION SECTION */}
             <div className="flex flex-col items-center pt-8">
+              
               {state === 'practice' && (
                 <div className="flex flex-col items-center gap-4">
                   <div className="relative">
