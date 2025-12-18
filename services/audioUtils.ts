@@ -151,7 +151,15 @@ export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?
 
   const englishVoices = voices.filter(v => v.lang.startsWith('en'));
 
-  // 1. Prioritize Premium/Enhanced voices (often much higher quality on mobile)
+  // 0. ULTIMATE PRIORITY: Sherpa-ONNX (Next-gen Kaldi with Kokoro)
+  const kaldiEngine = englishVoices.find(v => 
+    v.name.toLowerCase().includes('kaldi') || 
+    v.name.toLowerCase().includes('sherpa') || 
+    v.name.toLowerCase().includes('kokoro')
+  );
+  if (kaldiEngine) return kaldiEngine;
+
+  // 1. Prioritize Premium/Enhanced voices (standard mobile high quality)
   const premium = englishVoices.find(v => 
     (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Natural')) && v.lang.includes('US')
   );

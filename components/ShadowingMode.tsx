@@ -122,12 +122,10 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     utterance.lang = 'en-US';
     utterance.rate = aiSpeed;
     
-    // Use high quality voice if detected
     if (preferredVoice) {
       utterance.voice = preferredVoice;
     }
 
-    // Tweak pitch slightly for more natural feel on some mobile engines
     utterance.pitch = 1.0; 
     
     utterance.onboundary = (event) => {
@@ -266,7 +264,15 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     }
   };
 
-  const isLowQualityVoice = preferredVoice && !preferredVoice.name.match(/Enhanced|Premium|Siri|Natural|Google/i);
+  const isHighQualityCustom = preferredVoice && (
+    preferredVoice.name.toLowerCase().includes('kaldi') || 
+    preferredVoice.name.toLowerCase().includes('sherpa') || 
+    preferredVoice.name.toLowerCase().includes('kokoro')
+  );
+  
+  const isLowQualityVoice = preferredVoice && 
+    !isHighQualityCustom && 
+    !preferredVoice.name.match(/Enhanced|Premium|Siri|Natural|Google/i);
 
   return (
     <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
@@ -288,9 +294,9 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
-              <p className="text-sm text-indigo-200/70">
-                输入练习句子。<b>极速模式</b>零加载，支持拖动进度条重复听细节。
-              </p>
+              <div className="text-sm text-indigo-200/70">
+                输入练习句子。推荐在系统设置中启用 <b>Next-gen Kaldi</b> 以获得 Kokoro 顶级离线发音。
+              </div>
             </div>
             
             <textarea
@@ -314,7 +320,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         {(state === 'practice' || state === 'processing' || state === 'result') && (
           <div className="space-y-4 animate-in fade-in zoom-in-95">
             
-            {/* The Text Card & Player Controls - Integrated for ergonomics */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl relative overflow-hidden shadow-2xl">
               
               <div className="flex items-center justify-between mb-4">
@@ -335,7 +340,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                 </div>
               </div>
 
-              {/* Click text to Play/Pause */}
               <div 
                 onClick={toggleAiPlay}
                 className={`text-xl md:text-2xl font-medium text-center leading-relaxed mb-6 cursor-pointer select-none transition-colors duration-300 ${aiIsPlaying ? 'text-blue-400' : 'text-slate-100'}`}
@@ -343,18 +347,25 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                 {practiceText}
               </div>
 
-              {/* Quality Hint */}
-              {voiceMode === 'local' && isLowQualityVoice && (
-                <div className="mb-4 bg-amber-500/10 border border-amber-500/20 p-2 rounded-lg flex items-center gap-2">
-                    <AlertCircle size={12} className="text-amber-500 shrink-0" />
-                    <span className="text-[9px] text-amber-200/70 leading-tight">检测到当前为基础语音。如需更自然的发音，请在手机系统设置中下载“增强版(Enhanced)”英语语音包。</span>
-                </div>
+              {/* Status Hint */}
+              {voiceMode === 'local' && (
+                <>
+                  {isHighQualityCustom ? (
+                    <div className="mb-4 bg-emerald-500/10 border border-emerald-500/20 p-2 rounded-lg flex items-center gap-2">
+                        <Sparkles size={12} className="text-emerald-500 shrink-0" />
+                        <span className="text-[9px] text-emerald-200/70 leading-tight">已激活 <b>Next-gen Kaldi (Kokoro)</b>。当前处于顶级离线发音模式。</span>
+                    </div>
+                  ) : isLowQualityVoice ? (
+                    <div className="mb-4 bg-amber-500/10 border border-amber-500/20 p-2 rounded-lg flex items-center gap-2">
+                        <AlertCircle size={12} className="text-amber-500 shrink-0" />
+                        <span className="text-[9px] text-amber-200/70 leading-tight">检测到基础语音。请在系统设置中确保已开启 <b>Next-gen Kaldi</b> 引擎。</span>
+                    </div>
+                  ) : null}
+                </>
               )}
 
-              {/* PLAYER BAR - High positioning for thumb reach */}
               <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl">
                  <div className="flex flex-col gap-4">
-                    {/* Progress Slider (Unified for both modes) */}
                     <div className="flex items-center gap-3">
                         <span className="text-[10px] font-mono text-slate-500 w-8">
                             {voiceMode === 'ai' ? Math.floor(aiCurrentTime) : Math.floor((localProgress / 100) * practiceText.length)}
@@ -394,11 +405,11 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                              (aiIsPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />)}
                         </button>
 
-                        <div className="w-[80px] flex justify-end">
+                        <div className="w-[100px] flex justify-end">
                             {voiceMode === 'local' && (
                                 <div className="flex flex-col items-end">
                                     <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">极速模式</span>
-                                    {preferredVoice && <span className="text-[8px] text-slate-600 truncate max-w-[60px]">{preferredVoice.name}</span>}
+                                    {preferredVoice && <span className="text-[8px] text-slate-600 truncate max-w-[80px]">{preferredVoice.name}</span>}
                                 </div>
                             )}
                         </div>
@@ -406,7 +417,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                  </div>
               </div>
 
-              {/* Hidden Audio Element for AI Mode */}
               {voiceMode === 'ai' && aiAudioUrl && (
                   <audio 
                     ref={aiAudioRef} 
