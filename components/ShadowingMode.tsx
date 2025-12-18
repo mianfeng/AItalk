@@ -15,6 +15,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   // Voice Mode: 'local' (instant) or 'ai' (quality)
   const [voiceMode, setVoiceMode] = useState<'local' | 'ai'>('local');
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [voiceLoadingStatus, setVoiceLoadingStatus] = useState('初始化...');
   
   // Audio State
   const [aiAudioUrl, setAiAudioUrl] = useState<string | null>(null);
@@ -24,7 +25,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const [aiDuration, setAiDuration] = useState(0);
   const [aiSpeed, setAiSpeed] = useState(1.0);
   
-  // Local Mode specific state
+  // Local Mode specific
   const [localProgress, setLocalProgress] = useState(0); // 0 to 100
   const localCharOffsetRef = useRef(0);
   const isSeekingRef = useRef(false);
@@ -40,15 +41,44 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const userAudioRef = useRef<HTMLAudioElement>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
 
-  // Initialize Voices - Critical for Mobile
+  // Robust Voice Loading for Mobile
   useEffect(() => {
+    let retryCount = 0;
+    const maxRetries = 10;
+
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      const best = getPreferredVoice(voices, localStorage.getItem('lingua_voice_uri'));
-      setPreferredVoice(best);
+      if (voices.length > 0) {
+        const best = getPreferredVoice(voices, localStorage.getItem('lingua_voice_uri'));
+        setPreferredVoice(best);
+        setVoiceLoadingStatus(best ? best.name : '系统默认');
+        return true;
+      }
+      return false;
     };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    // Initial load
+    if (!loadVoices()) {
+      setVoiceLoadingStatus('正在查找引擎...');
+    }
+
+    // Listener
+    window.speechSynthesis.onvoiceschanged = () => {
+      loadVoices();
+    };
+
+    // Polling backup for some Android devices where onvoiceschanged doesn't fire
+    const timer = setInterval(() => {
+      if (loadVoices() || retryCount >= maxRetries) {
+        clearInterval(timer);
+      }
+      retryCount++;
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      window.speechSynthesis.onvoiceschanged = null;
+    };
   }, []);
 
   const stopAllRecording = () => {
@@ -105,49 +135,51 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     return null;
   };
 
-  // Improved Local Speech Controller (handles offsets for seeking)
   const startLocalSpeech = (startIndex: number) => {
     window.speechSynthesis.cancel();
     
-    const remainingText = practiceText.substring(startIndex);
-    if (!remainingText.trim()) {
-      setAiIsPlaying(false);
-      setLocalProgress(100);
-      return;
-    }
+    // Ensure small delay for mobile engine to reset
+    setTimeout(() => {
+        const remainingText = practiceText.substring(startIndex);
+        if (!remainingText.trim()) {
+            setAiIsPlaying(false);
+            setLocalProgress(100);
+            return;
+        }
 
-    const utterance = new SpeechSynthesisUtterance(remainingText);
-    utterance.lang = 'en-US';
-    utterance.rate = aiSpeed;
-    
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
+        const utterance = new SpeechSynthesisUtterance(remainingText);
+        utterance.lang = 'en-US';
+        utterance.rate = aiSpeed;
+        
+        if (preferredVoice) {
+            utterance.voice = preferredVoice;
+        }
 
-    // Track progress via boundary events
-    utterance.onboundary = (event) => {
-      if (event.name === 'word' && !isSeekingRef.current) {
-        const absoluteCharIndex = startIndex + event.charIndex;
-        const progress = (absoluteCharIndex / practiceText.length) * 100;
-        setLocalProgress(progress);
-        localCharOffsetRef.current = absoluteCharIndex;
-      }
-    };
-    
-    utterance.onend = () => {
-      if (!isSeekingRef.current) {
-        setAiIsPlaying(false);
-        setLocalProgress(100);
-        localCharOffsetRef.current = 0;
-      }
-    };
+        utterance.onboundary = (event) => {
+          if (event.name === 'word' && !isSeekingRef.current) {
+            const absoluteCharIndex = startIndex + event.charIndex;
+            const progress = (absoluteCharIndex / practiceText.length) * 100;
+            setLocalProgress(progress);
+            localCharOffsetRef.current = absoluteCharIndex;
+          }
+        };
+        
+        utterance.onend = () => {
+          if (!isSeekingRef.current) {
+            setAiIsPlaying(false);
+            setLocalProgress(100);
+            localCharOffsetRef.current = 0;
+          }
+        };
 
-    utterance.onerror = () => {
-        setAiIsPlaying(false);
-    };
+        utterance.onerror = (e) => {
+            console.error("Local TTS Error:", e);
+            setAiIsPlaying(false);
+        };
 
-    setAiIsPlaying(true);
-    window.speechSynthesis.speak(utterance);
+        setAiIsPlaying(true);
+        window.speechSynthesis.speak(utterance);
+    }, 50);
   };
 
   const toggleAiPlay = async () => {
@@ -156,7 +188,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         window.speechSynthesis.cancel();
         setAiIsPlaying(false);
       } else {
-        // Resume from offset or start over if finished
         const startFrom = localProgress >= 99 ? 0 : localCharOffsetRef.current;
         if (startFrom === 0) setLocalProgress(0);
         startLocalSpeech(startFrom);
@@ -164,7 +195,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       return;
     }
 
-    // AI Mode Logic
     if (!aiAudioUrl) {
       const url = await loadAiAudio();
       if (url && aiAudioRef.current) {
@@ -189,7 +219,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       const charIndex = Math.floor((val / 100) * practiceText.length);
       localCharOffsetRef.current = charIndex;
       
-      // If was playing, we must restart the utterance from new offset
+      // Real-time update for local TTS requires re-calling speak
       if (aiIsPlaying) {
         startLocalSpeech(charIndex);
       }
@@ -206,7 +236,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     if (aiAudioRef.current) {
       aiAudioRef.current.playbackRate = aiSpeed;
     }
-    // If local is playing, restart with new speed
     if (voiceMode === 'local' && aiIsPlaying) {
         startLocalSpeech(localCharOffsetRef.current);
     }
@@ -281,14 +310,13 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
       <div className="flex-1 p-4 md:p-6 max-w-2xl mx-auto w-full flex flex-col gap-4 pb-32">
         
-        {/* VIEW: INPUT TEXT */}
         {state === 'input' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
-              <p className="text-sm text-indigo-200/70">
-                输入练习句子。<b>极速模式</b>采用本地语音，零加载且支持拖动。
-              </p>
+              <div className="text-sm text-indigo-200/70">
+                输入练习句子。应用会自动探测当前系统的 <b>{voiceLoadingStatus}</b>。
+              </div>
             </div>
             
             <textarea
@@ -308,7 +336,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* VIEW: PRACTICE & RESULT */}
         {(state === 'practice' || state === 'processing' || state === 'result') && (
           <div className="space-y-4 animate-in fade-in zoom-in-95">
             
@@ -380,11 +407,11 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                              (aiIsPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />)}
                         </button>
 
-                        <div className="w-[80px] flex justify-end">
+                        <div className="w-[100px] flex justify-end">
                             {voiceMode === 'local' && (
                                 <div className="flex flex-col items-end">
                                     <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">极速模式</span>
-                                    {preferredVoice && <span className="text-[8px] text-slate-600 truncate max-w-[60px]">{preferredVoice.name}</span>}
+                                    <span className="text-[8px] text-slate-600 truncate max-w-[80px]">{voiceLoadingStatus}</span>
                                 </div>
                             )}
                         </div>
