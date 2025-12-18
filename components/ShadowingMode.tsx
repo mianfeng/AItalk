@@ -295,7 +295,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
               <div className="text-sm text-indigo-200/70">
-                输入练习句子。推荐在系统设置中启用 <b>Next-gen Kaldi</b> 以获得 Kokoro 顶级离线发音。
+                输入练习句子。推荐在 Android 系统设置中将首选引擎切换为 <b>Next-gen Kaldi</b> 以获得 Kokoro 顶级离线音质。
               </div>
             </div>
             
@@ -358,7 +358,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                   ) : isLowQualityVoice ? (
                     <div className="mb-4 bg-amber-500/10 border border-amber-500/20 p-2 rounded-lg flex items-center gap-2">
                         <AlertCircle size={12} className="text-amber-500 shrink-0" />
-                        <span className="text-[9px] text-amber-200/70 leading-tight">检测到基础语音。请在系统设置中确保已开启 <b>Next-gen Kaldi</b> 引擎。</span>
+                        <span className="text-[9px] text-amber-200/70 leading-tight">检测到基础语音。请在系统设置中确保已开启并选中 <b>Next-gen Kaldi</b> 引擎。</span>
                     </div>
                   ) : null}
                 </>
