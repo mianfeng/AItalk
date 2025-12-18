@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
 import { pcmToWav } from '../services/audioUtils';
 
@@ -12,13 +12,21 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const [practiceText, setPracticeText] = useState('');
   const [state, setState] = useState<'input' | 'practice' | 'processing' | 'result'>('input');
   
-  // AI Audio State
+  // Voice Mode: 'local' (instant) or 'ai' (quality)
+  const [voiceMode, setVoiceMode] = useState<'local' | 'ai'>('local');
+  
+  // Audio State
   const [aiAudioUrl, setAiAudioUrl] = useState<string | null>(null);
   const [aiIsLoading, setAiIsLoading] = useState(false);
   const [aiIsPlaying, setAiIsPlaying] = useState(false);
   const [aiCurrentTime, setAiCurrentTime] = useState(0);
   const [aiDuration, setAiDuration] = useState(0);
   const [aiSpeed, setAiSpeed] = useState(1.0);
+  
+  // Local Mode specific
+  const [localProgress, setLocalProgress] = useState(0); // 0 to 100
+  const localCharOffsetRef = useRef(0);
+  const isSeekingRef = useRef(false);
   
   // User Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -29,12 +37,41 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const userAudioRef = useRef<HTMLAudioElement>(null);
-  
+  const activeStreamRef = useRef<MediaStream | null>(null);
+
+  const stopAllRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(track => track.stop());
+      activeStreamRef.current = null;
+    }
+    setIsRecording(false);
+  };
+
+  const resetSession = () => {
+    stopAllRecording();
+    window.speechSynthesis.cancel();
+    if (aiAudioUrl) URL.revokeObjectURL(aiAudioUrl);
+    if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
+    setAiAudioUrl(null);
+    setUserAudioUrl(null);
+    setEvaluation(null);
+    setAiIsPlaying(false);
+    setAiCurrentTime(0);
+    setLocalProgress(0);
+    localCharOffsetRef.current = 0;
+    setState('input');
+  };
+
   const handleStartPractice = () => {
     if (!inputText.trim()) return;
     setPracticeText(inputText);
     setState('practice');
-    setAiAudioUrl(null); // Reset audio for new text
+    setAiAudioUrl(null);
+    setLocalProgress(0);
+    localCharOffsetRef.current = 0;
   };
 
   const loadAiAudio = async () => {
@@ -46,20 +83,76 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         const wavBlob = pcmToWav(base64, 24000);
         const url = URL.createObjectURL(wavBlob);
         setAiAudioUrl(url);
+        return url;
       } else {
-        alert("语音生成失败，请重试");
+        alert("AI语音生成失败，请尝试使用极速模式");
       }
     } catch (e) {
       console.error(e);
     } finally {
       setAiIsLoading(false);
     }
+    return null;
+  };
+
+  const startLocalSpeech = (startIndex: number) => {
+    window.speechSynthesis.cancel();
+    const remainingText = practiceText.substring(startIndex);
+    if (!remainingText.trim()) {
+      setAiIsPlaying(false);
+      setLocalProgress(100);
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(remainingText);
+    utterance.lang = 'en-US';
+    utterance.rate = aiSpeed;
+    
+    utterance.onboundary = (event) => {
+      if (event.name === 'word' && !isSeekingRef.current) {
+        const absoluteCharIndex = startIndex + event.charIndex;
+        const progress = (absoluteCharIndex / practiceText.length) * 100;
+        setLocalProgress(progress);
+        localCharOffsetRef.current = absoluteCharIndex;
+      }
+    };
+    
+    utterance.onend = () => {
+      if (!isSeekingRef.current) {
+        setAiIsPlaying(false);
+        setLocalProgress(100);
+        localCharOffsetRef.current = 0;
+      }
+    };
+
+    utterance.onerror = () => {
+        setAiIsPlaying(false);
+    };
+
+    setAiIsPlaying(true);
+    window.speechSynthesis.speak(utterance);
   };
 
   const toggleAiPlay = async () => {
+    if (voiceMode === 'local') {
+      if (aiIsPlaying) {
+        window.speechSynthesis.cancel();
+        setAiIsPlaying(false);
+      } else {
+        // If it was at the end, restart from beginning
+        const startFrom = localProgress >= 99 ? 0 : localCharOffsetRef.current;
+        if (startFrom === 0) setLocalProgress(0);
+        startLocalSpeech(startFrom);
+      }
+      return;
+    }
+
+    // AI Mode Logic
     if (!aiAudioUrl) {
-      await loadAiAudio();
-      // Auto-play after loading is handled by effect or manual call
+      const url = await loadAiAudio();
+      if (url && aiAudioRef.current) {
+         setTimeout(() => aiAudioRef.current?.play(), 100);
+      }
       return;
     }
 
@@ -70,44 +163,59 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     }
   };
 
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    
+    if (voiceMode === 'local') {
+      isSeekingRef.current = true;
+      setLocalProgress(val);
+      const charIndex = Math.floor((val / 100) * practiceText.length);
+      localCharOffsetRef.current = charIndex;
+      
+      // If was playing, restart from new position
+      if (aiIsPlaying) {
+        startLocalSpeech(charIndex);
+      }
+      isSeekingRef.current = false;
+    } else {
+      if (aiAudioRef.current) {
+        aiAudioRef.current.currentTime = val;
+        setAiCurrentTime(val);
+      }
+    }
+  };
+
   // Sync AI audio speed
   useEffect(() => {
     if (aiAudioRef.current) {
       aiAudioRef.current.playbackRate = aiSpeed;
     }
+    // If local is playing, restart with new speed
+    if (voiceMode === 'local' && aiIsPlaying) {
+        startLocalSpeech(localCharOffsetRef.current);
+    }
   }, [aiSpeed]);
 
-  const handleAiTimeUpdate = () => {
-    if (aiAudioRef.current) {
-      setAiCurrentTime(aiAudioRef.current.currentTime);
-      setAiDuration(aiAudioRef.current.duration || 0);
-    }
-  };
-
-  const handleAiSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    if (aiAudioRef.current) {
-      aiAudioRef.current.currentTime = time;
-      setAiCurrentTime(time);
-    }
-  };
-
   const toggleAiSpeed = () => {
-    const speeds = [1.0, 0.75, 0.5];
+    const speeds = [1.0, 0.8, 0.6];
     const currentIndex = speeds.indexOf(aiSpeed);
     const nextIndex = (currentIndex + 1) % speeds.length;
     setAiSpeed(speeds[nextIndex]);
   };
 
   const toggleRecording = async () => {
-    // If user is listening to AI, stop it first
-    if (aiIsPlaying) aiAudioRef.current?.pause();
+    if (aiIsPlaying) {
+        if (voiceMode === 'local') window.speechSynthesis.cancel();
+        else aiAudioRef.current?.pause();
+        setAiIsPlaying(false);
+    }
 
     if (isRecording) {
-      mediaRecorderRef.current?.stop();
+      stopAllRecording();
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        activeStreamRef.current = stream;
         const recorder = new MediaRecorder(stream);
         mediaRecorderRef.current = recorder;
         audioChunksRef.current = [];
@@ -131,69 +239,53 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
             setState('result');
           };
           stream.getTracks().forEach(t => t.stop());
+          activeStreamRef.current = null;
         };
 
         recorder.start();
         setIsRecording(true);
       } catch (e) {
-        alert("无法访问麦克风");
+        alert("无法访问麦克风，请检查浏览器权限设置");
       }
     }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (aiAudioUrl) URL.revokeObjectURL(aiAudioUrl);
-      if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
-    };
-  }, [aiAudioUrl, userAudioUrl]);
-
-  // Format time (0:00)
-  const formatTime = (time: number) => {
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
     <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
       {/* Header */}
-      <div className="h-16 shrink-0 border-b border-slate-900 bg-slate-950 flex items-center px-4 sticky top-0 z-10">
+      <div className="h-16 shrink-0 border-b border-slate-900 bg-slate-950 flex items-center px-4 sticky top-0 z-20">
         <button 
-          onClick={state === 'input' ? onBack : () => setState('input')}
+          onClick={state === 'input' ? onBack : resetSession}
           className="mr-4 p-2 -ml-2 rounded-full hover:bg-slate-900 text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft size={20} />
         </button>
-        <h2 className="text-lg font-bold">跟读练习 (Shadowing)</h2>
+        <h2 className="text-lg font-bold">跟读练习</h2>
       </div>
 
-      <div className="flex-1 p-4 md:p-6 max-w-2xl mx-auto w-full flex flex-col gap-6 pb-20">
+      <div className="flex-1 p-4 md:p-6 max-w-2xl mx-auto w-full flex flex-col gap-4 pb-32">
         
         {/* VIEW: INPUT TEXT */}
         {state === 'input' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
-              <p className="text-sm text-indigo-200/70 leading-relaxed">
-                在这里输入你想练习的句子或段落。我们将为你生成纯正的语音示范，通过反复聆听和模仿来纠正发音。
+              <p className="text-sm text-indigo-200/70">
+                输入练习句子。<b>极速模式</b>零加载，支持拖动进度条重复听细节。
               </p>
             </div>
             
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">练习内容</label>
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                placeholder="例如: I'm gonna make him an offer he can't refuse."
-                className="w-full h-48 bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500/50 outline-none transition-all resize-none"
-              />
-            </div>
+            <textarea
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="输入英语台词..."
+              className="w-full h-40 bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 text-lg placeholder:text-slate-600 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500/50 outline-none transition-all resize-none"
+            />
 
             <button
               onClick={handleStartPractice}
               disabled={!inputText.trim()}
-              className="w-full py-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:hover:bg-purple-600 text-white font-bold rounded-2xl shadow-xl shadow-purple-900/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+              className="w-full py-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-2xl shadow-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
             >
               开始练习 <ArrowRight size={18} />
             </button>
@@ -202,83 +294,108 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
         {/* VIEW: PRACTICE & RESULT */}
         {(state === 'practice' || state === 'processing' || state === 'result') && (
-          <div className="space-y-8 animate-in fade-in zoom-in-95">
+          <div className="space-y-4 animate-in fade-in zoom-in-95">
             
-            {/* The Text to Practice Card */}
-            <div className="bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
+            {/* The Text Card & Player Controls - Integrated for ergonomics */}
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl relative overflow-hidden shadow-2xl">
               
-              <div className="flex items-center gap-2 mb-6">
+              <div className="flex items-center justify-between mb-4">
                 <span className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-full text-[10px] font-bold text-slate-400 uppercase tracking-tighter">示范文本</span>
+                <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 scale-90">
+                    <button 
+                        onClick={() => { setVoiceMode('local'); window.speechSynthesis.cancel(); setAiIsPlaying(false); }}
+                        className={`px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center gap-1 ${voiceMode === 'local' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+                    >
+                        <Zap size={10} /> 极速
+                    </button>
+                    <button 
+                        onClick={() => setVoiceMode('ai')}
+                        className={`px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center gap-1 ${voiceMode === 'ai' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
+                    >
+                        <Volume2 size={10} /> AI
+                    </button>
+                </div>
               </div>
 
-              <p className="text-xl md:text-2xl font-medium text-slate-100 text-center leading-relaxed mb-10">
+              {/* Click text to Play/Pause */}
+              <div 
+                onClick={toggleAiPlay}
+                className={`text-xl md:text-2xl font-medium text-center leading-relaxed mb-6 cursor-pointer select-none transition-colors duration-300 ${aiIsPlaying ? 'text-blue-400' : 'text-slate-100'}`}
+              >
                 {practiceText}
-              </p>
-              
-              {/* AI PLAYER UI */}
-              <div className="bg-slate-950/80 backdrop-blur-md border border-slate-800 p-4 rounded-2xl">
-                 <div className="flex flex-col gap-3">
-                    
-                    {/* Progress Bar */}
+              </div>
+
+              {/* PLAYER BAR - High positioning for thumb reach */}
+              <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl">
+                 <div className="flex flex-col gap-4">
+                    {/* Progress Slider (Unified for both modes) */}
                     <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-mono text-slate-500 w-8">{formatTime(aiCurrentTime)}</span>
+                        <span className="text-[10px] font-mono text-slate-500 w-8">
+                            {voiceMode === 'ai' ? Math.floor(aiCurrentTime) : Math.floor((localProgress / 100) * practiceText.length)}
+                        </span>
                         <input 
                             type="range" 
                             min="0" 
-                            max={aiDuration || 100} 
-                            step="0.01"
-                            value={aiCurrentTime}
-                            onChange={handleAiSeek}
-                            className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            max={voiceMode === 'ai' ? (aiDuration || 100) : 100} 
+                            step={voiceMode === 'ai' ? "0.01" : "0.1"}
+                            value={voiceMode === 'ai' ? aiCurrentTime : localProgress}
+                            onChange={handleSeek}
+                            className={`flex-1 h-1.5 rounded-lg appearance-none cursor-pointer ${voiceMode === 'local' ? 'accent-indigo-500 bg-indigo-900/20' : 'accent-blue-500 bg-blue-900/20'}`}
                         />
-                        <span className="text-[10px] font-mono text-slate-500 w-8">{formatTime(aiDuration)}</span>
+                        <span className="text-[10px] font-mono text-slate-500 w-8 text-right">
+                            {voiceMode === 'ai' ? Math.floor(aiDuration) : practiceText.length}
+                        </span>
                     </div>
 
-                    <div className="flex items-center justify-between px-2">
-                        {/* Speed Toggle */}
+                    <div className="flex items-center justify-between">
                         <button 
                             onClick={toggleAiSpeed}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-xs font-bold text-slate-400 transition-colors border border-slate-800"
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-bold text-slate-400 transition-colors border border-slate-800"
                         >
                             <Gauge size={14} />
                             <span>{aiSpeed}x</span>
                         </button>
 
-                        {/* Main Play/Pause Button */}
                         <button
                             onClick={toggleAiPlay}
                             disabled={aiIsLoading}
-                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg ${
-                                aiIsLoading ? 'bg-slate-800 text-slate-600' : 'bg-blue-600 hover:bg-blue-500 text-white hover:scale-105 active:scale-95'
-                            }`}
+                            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-xl hover:scale-105 active:scale-95 ${
+                                aiIsLoading ? 'bg-slate-800 text-slate-600' : 
+                                (voiceMode === 'local' ? 'bg-indigo-600 shadow-indigo-900/20' : 'bg-blue-600 shadow-blue-900/20')
+                            } text-white`}
                         >
                             {aiIsLoading ? <Loader2 size={24} className="animate-spin" /> : 
-                             (aiIsPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="ml-1" />)}
+                             (aiIsPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />)}
                         </button>
 
-                        {/* Filler for layout balance */}
-                        <div className="w-[60px]"></div>
+                        <div className="w-[80px] flex justify-end">
+                            {voiceMode === 'local' && <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">本地极速</span>}
+                        </div>
                     </div>
                  </div>
               </div>
 
-              {/* Hidden Audio Element for AI */}
-              {aiAudioUrl && (
+              {/* Hidden Audio Element for AI Mode */}
+              {voiceMode === 'ai' && aiAudioUrl && (
                   <audio 
                     ref={aiAudioRef} 
                     src={aiAudioUrl} 
                     onPlay={() => setAiIsPlaying(true)}
                     onPause={() => setAiIsPlaying(false)}
                     onEnded={() => setAiIsPlaying(false)}
-                    onTimeUpdate={handleAiTimeUpdate}
-                    onLoadedMetadata={handleAiTimeUpdate}
+                    onTimeUpdate={() => {
+                        if (aiAudioRef.current) {
+                            setAiCurrentTime(aiAudioRef.current.currentTime);
+                            setAiDuration(aiAudioRef.current.duration || 0);
+                        }
+                    }}
+                    onLoadedMetadata={() => setAiDuration(aiAudioRef.current?.duration || 0)}
                   />
               )}
             </div>
 
-            {/* Actions / Results */}
-            <div className="flex flex-col items-center gap-8">
+            {/* RECORDING / ACTION SECTION */}
+            <div className="flex flex-col items-center pt-8">
               
               {state === 'practice' && (
                 <div className="flex flex-col items-center gap-4">
@@ -293,77 +410,60 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                       {isRecording ? <Square size={32} fill="currentColor" /> : <Mic size={32} />}
                     </button>
                   </div>
-                  <p className="text-slate-400 text-sm font-medium animate-pulse">
-                    {isRecording ? '录音中，读完点击停止' : '点击麦克风开始跟读'}
+                  <p className="text-slate-400 text-sm font-medium">
+                    {isRecording ? '录音中，读完点击停止' : '点我开始录音跟读'}
                   </p>
                 </div>
               )}
 
               {state === 'processing' && (
                 <div className="flex flex-col items-center gap-4 py-8">
-                   <div className="w-16 h-16 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center">
-                     <RefreshCcw className="animate-spin text-purple-500" size={32} />
-                   </div>
+                   <RefreshCcw className="animate-spin text-purple-500" size={32} />
                    <p className="text-slate-500 font-medium">AI 正在评估你的发音...</p>
                 </div>
               )}
 
               {state === 'result' && evaluation && (
                 <div className="w-full space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                  
-                  {/* Score Card */}
                   <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900 border border-indigo-500/30 rounded-3xl p-6 flex flex-col items-center shadow-2xl">
-                     <div className="text-xs text-indigo-400 font-bold uppercase tracking-widest mb-2">本次跟读得分</div>
+                     <div className="text-xs text-indigo-400 font-bold uppercase tracking-widest mb-2">得分</div>
                      <div className="text-6xl font-black text-white mb-4 flex items-baseline gap-1">
-                        {evaluation.score}
-                        <span className="text-xl text-slate-500 font-medium">/ 100</span>
+                        {evaluation.score}<span className="text-xl text-slate-500">/100</span>
                      </div>
-                     <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-6">
-                        <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${evaluation.score}%` }}></div>
-                     </div>
-
-                     {/* Feedback */}
                      <div className="w-full bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50">
-                        <div className="flex items-center gap-2 mb-2 text-amber-400 text-xs font-bold uppercase">
-                          <Sparkles size={14} /> 提升建议
-                        </div>
-                        <p className="text-slate-300 text-sm leading-relaxed italic">
-                          "{evaluation.feedback}"
-                        </p>
+                        <p className="text-slate-300 text-sm leading-relaxed italic">"{evaluation.feedback}"</p>
                      </div>
                   </div>
 
-                  {/* Playback & Retry */}
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => userAudioRef.current?.play()}
-                      className="py-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center gap-2 text-slate-300 font-bold hover:bg-slate-800 transition-colors"
+                      className="py-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center gap-2 text-slate-300 font-bold active:bg-slate-800"
                     >
-                      <Play size={18} /> 回听我的录音
+                      <Play size={18} /> 回听录音
                     </button>
                     <audio ref={userAudioRef} src={userAudioUrl || ''} className="hidden" />
                     
                     <button
                       onClick={() => {
+                        stopAllRecording();
                         setEvaluation(null);
                         setState('practice');
-                        setIsRecording(false);
                       }}
-                      className="py-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center gap-2 text-slate-300 font-bold hover:bg-slate-800 transition-colors"
+                      className="py-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-center gap-2 text-slate-300 font-bold active:bg-slate-800"
                     >
                       <RotateCcw size={18} /> 再练一次
                     </button>
                   </div>
 
                   <button
-                    onClick={() => setState('input')}
-                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-emerald-900/20"
+                    onClick={resetSession}
+                    className="w-full py-4 bg-emerald-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-xl active:scale-[0.98]"
                   >
-                    <CheckCircle size={18} /> 完成并练习新内容
+                    <CheckCircle size={18} /> 完成，换个句子
                   </button>
                 </div>
               )}
-
             </div>
           </div>
         )}
