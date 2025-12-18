@@ -41,7 +41,6 @@ export async function decodeAudioData(
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
     for (let i = 0; i < frameCount; i++) {
-      // Convert Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
       channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
     }
   }
@@ -141,7 +140,9 @@ export async function playAudioFromBase64(base64String: string): Promise<void> {
 // --- Browser TTS Utilities ---
 
 /**
- * Gets the best available English voice with high-quality preference.
+ * Gets the best available English voice.
+ * Crucially: Returns null if no preferred high-quality voice is found,
+ * which tells the browser to use the system's own default engine choice.
  */
 export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?: string | null): SpeechSynthesisVoice | null {
   if (savedVoiceURI) {
@@ -149,36 +150,23 @@ export function getPreferredVoice(voices: SpeechSynthesisVoice[], savedVoiceURI?
     if (saved) return saved;
   }
 
-  const englishVoices = voices.filter(v => v.lang.startsWith('en'));
-
-  // 0. SUPREME PRIORITY: Next-gen Kaldi / Sherpa-ONNX (The high-quality offline engine)
-  const kaldiEngine = englishVoices.find(v => 
-    v.name.toLowerCase().includes('kaldi') || 
-    v.name.toLowerCase().includes('sherpa') || 
-    v.name.toLowerCase().includes('kokoro')
+  // 1. Check for Next-gen Kaldi / Sherpa / Kokoro specifically (Top Tier Offline)
+  const premiumOffline = voices.find(v => 
+    v.lang.startsWith('en') && 
+    (v.name.toLowerCase().includes('kaldi') || 
+     v.name.toLowerCase().includes('sherpa') || 
+     v.name.toLowerCase().includes('kokoro'))
   );
-  if (kaldiEngine) return kaldiEngine;
+  if (premiumOffline) return premiumOffline;
 
-  // 1. Prioritize Premium/Enhanced/Natural voices (standard mobile high quality)
-  const premium = englishVoices.find(v => 
-    (v.name.includes('Premium') || v.name.includes('Enhanced') || v.name.includes('Natural')) && v.lang.includes('US')
+  // 2. Check for System Premium/Enhanced voices
+  const enhanced = voices.find(v => 
+    v.lang.startsWith('en') && v.name.match(/Enhanced|Premium|Natural|Siri/i)
   );
-  if (premium) return premium;
+  if (enhanced) return enhanced;
 
-  // 2. Specific mobile favorites (Siri is usually the best on iOS)
-  const siri = englishVoices.find(v => v.name.includes('Siri') && v.lang.includes('US'));
-  if (siri) return siri;
-
-  // 3. Google High Quality
-  const googleBest = englishVoices.find(v => v.name === 'Google US English');
-  if (googleBest) return googleBest;
-
-  // 4. Default Microsoft/System fallbacks
-  const msBest = englishVoices.find(v => (v.name.includes('Zira') || v.name.includes('David')) && v.lang.includes('US'));
-  if (msBest) return msBest;
-
-  const anyUS = englishVoices.find(v => v.lang === 'en-US');
-  if (anyUS) return anyUS;
-
-  return englishVoices[0] || null;
+  // 3. IMPORTANT: If none of the above special ones are found,
+  // return NULL to let the browser automatically use the system's "Current Default".
+  // This is the most compatible way to handle Android engine switching.
+  return null;
 }

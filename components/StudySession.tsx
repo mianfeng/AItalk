@@ -25,8 +25,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   // New State for "Rate First" flow
-  // null = not rated yet (Front side)
-  // boolean = rated (Back side), true = mastered, false = review
   const [currentRating, setCurrentRating] = useState<boolean | null>(null);
 
   const [results, setResults] = useState<SessionResult[]>([]);
@@ -46,11 +44,10 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
       const voices = window.speechSynthesis.getVoices();
       const savedURI = localStorage.getItem('lingua_voice_uri');
       const bestVoice = getPreferredVoice(voices, savedURI);
-      if (bestVoice) setPreferredVoice(bestVoice);
+      setPreferredVoice(bestVoice);
     };
 
     loadVoices();
-    // Chrome loads voices asynchronously
     window.speechSynthesis.onvoiceschanged = loadVoices;
   }, []);
 
@@ -95,24 +92,16 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
       setCollectedIds(newSet);
   };
 
-  // Step 1: User rates the item (Front -> Back)
   const handleRate = (mastered: boolean) => {
       setCurrentRating(mastered);
       setIsFlipped(true);
-      // Optional: Auto-play audio on flip could be added here
   };
 
-  // Step 2: User clicks Next (Back -> Next Card)
   const handleNext = () => {
     if (currentRating === null) return;
 
-    // IMPORTANT: If user studied it, we default to saving it (unless they explicitly un-hearted it, handled by Set logic)
-    // But for the daily flow, let's pass the 'collectedIds' state.
-    // However, to fix the logic where new words aren't saved, we'll mark it saved if it was studied.
-    const isSaved = collectedIds.has(currentItem.id) || true; // Auto-save studied items logic is handled in App.tsx mostly, but we pass intent here.
-
     const currentResult: SessionResult = {
-        item: { ...currentItem, saved: isCollected }, // Pass current visual state
+        item: { ...currentItem, saved: isCollected }, 
         remembered: currentRating
     };
     
@@ -120,16 +109,10 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     setResults(updatedResults);
     
     if (currentIndex < items.length - 1) {
-      // START TRANSITION: Fade out
       setIsTransitioning(true);
-
-      // Wait for fade out (300ms)
       setTimeout(() => {
-          // While invisible: Swap Data, Reset Flip
           resetCardState();
           setCurrentIndex(prev => prev + 1);
-          
-          // Small buffer then Fade in
           setTimeout(() => {
               setIsTransitioning(false);
           }, 50);
@@ -148,33 +131,26 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     }
     
     setIsPlaying(true);
-    
-    // Cancel any previous utterance
     window.speechSynthesis.cancel();
 
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = 'en-US';
-    speech.rate = speechRate;
-    
-    if (preferredVoice) {
-        speech.voice = preferredVoice;
-    }
+    setTimeout(() => {
+        const speech = new SpeechSynthesisUtterance(text);
+        speech.lang = 'en-US';
+        speech.rate = speechRate;
+        
+        if (preferredVoice) {
+            speech.voice = preferredVoice;
+        }
 
-    speech.onend = () => {
-        setIsPlaying(false);
-    };
+        speech.onend = () => setIsPlaying(false);
+        speech.onerror = () => setIsPlaying(false);
 
-    speech.onerror = (e) => {
-        console.error("Speech synthesis error", e);
-        setIsPlaying(false);
-    };
-
-    window.speechSynthesis.speak(speech);
+        window.speechSynthesis.speak(speech);
+    }, 50);
   };
 
   const toggleSpeed = (e: React.MouseEvent) => {
       e.stopPropagation();
-      // Cycle: 1.0 -> 0.75 -> 0.5 -> 1.0
       setSpeechRate(prev => {
           if (prev === 1.0) return 0.75;
           if (prev === 0.75) return 0.5;
@@ -223,7 +199,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   return (
     <div className="flex flex-col items-center h-full w-full max-w-md mx-auto p-4 relative">
        
-       {/* Help Modal */}
        {showHelp && (
            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={() => setShowHelp(false)}>
                <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -248,12 +223,10 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            </button>
        </div>
 
-       {/* Progress Bar - Reduced margin */}
        <div className="w-full h-1 bg-slate-800 rounded-full mb-4 mt-2 overflow-hidden shrink-0">
           <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
        </div>
 
-       {/* Card Container with Transition Animation */}
        <div 
          className={`perspective-1000 w-full flex-1 max-h-[42vh] min-h-[240px] relative group my-auto transition-all duration-300 ${
            isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'
@@ -273,7 +246,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           <div 
             className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}
           >
-             {/* Front - Compact padding and typography */}
              <div className="absolute inset-0 backface-hidden bg-slate-800 border-2 border-slate-700 rounded-2xl flex flex-col items-center justify-center p-3 shadow-xl">
                  <div className="flex items-center gap-2 mb-2">
                     {currentLevel === 0 && (
@@ -294,7 +266,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                      <p className="text-slate-400 font-mono text-xs mb-2">{currentItem.pronunciation}</p>
                  )}
                  
-                 {/* Audio Control Row */}
                  <div className="mt-4 flex items-center gap-3">
                      <button 
                         onClick={(e) => { e.stopPropagation(); playTTS(currentItem.text); }}
@@ -313,10 +284,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                  </div>
              </div>
 
-             {/* Back */}
              <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border-2 border-blue-900/50 rounded-2xl flex flex-col items-center justify-center p-4 shadow-xl overflow-y-auto custom-scrollbar relative">
-                 
-                 {/* Mastery Level Indicator */}
                  <div className="absolute top-3 left-4 flex items-center gap-1.5 px-2 py-0.5 bg-slate-800 rounded-lg border border-slate-700">
                     <BarChart size={10} className="text-blue-400" />
                     <span className="text-[10px] text-slate-400 font-medium">
@@ -325,7 +293,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                  </div>
 
                  <div className="flex-1 flex flex-col items-center w-full pt-4 md:pt-6">
-                     {/* Result Badge */}
                      <div className={`mb-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${currentRating ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'}`}>
                          {currentRating ? '已掌握' : '需复习'}
                      </div>
@@ -399,7 +366,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           </div>
        </div>
 
-       {/* Controls - Reduced Margin and Compactness */}
        <div className={`flex items-center gap-3 mt-4 w-full justify-center shrink-0 pb-2 transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
           {!isFlipped ? (
              <>

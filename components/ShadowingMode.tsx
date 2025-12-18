@@ -14,7 +14,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   
   // Voice Mode: 'local' (instant) or 'ai' (quality)
   const [voiceMode, setVoiceMode] = useState<'local' | 'ai'>('local');
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
   
   // Audio State
@@ -45,7 +44,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      setAvailableVoices(voices);
       const best = getPreferredVoice(voices, localStorage.getItem('lingua_voice_uri'));
       setPreferredVoice(best);
     };
@@ -98,8 +96,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         const url = URL.createObjectURL(wavBlob);
         setAiAudioUrl(url);
         return url;
-      } else {
-        alert("AI语音生成失败，请尝试使用极速模式");
       }
     } catch (e) {
       console.error(e);
@@ -118,39 +114,43 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(remainingText);
-    utterance.lang = 'en-US';
-    utterance.rate = aiSpeed;
-    
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
+    // SMALL TIMEOUT for reliability on mobile
+    setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(remainingText);
+        utterance.lang = 'en-US';
+        utterance.rate = aiSpeed;
+        
+        // IMPORTANT: If preferredVoice is null, we don't set it, 
+        // letting the browser use whatever is set as "Default" in system.
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+        }
 
-    utterance.pitch = 1.0; 
-    
-    utterance.onboundary = (event) => {
-      if (event.name === 'word' && !isSeekingRef.current) {
-        const absoluteCharIndex = startIndex + event.charIndex;
-        const progress = (absoluteCharIndex / practiceText.length) * 100;
-        setLocalProgress(progress);
-        localCharOffsetRef.current = absoluteCharIndex;
-      }
-    };
-    
-    utterance.onend = () => {
-      if (!isSeekingRef.current) {
-        setAiIsPlaying(false);
-        setLocalProgress(100);
-        localCharOffsetRef.current = 0;
-      }
-    };
+        utterance.onboundary = (event) => {
+          if (event.name === 'word' && !isSeekingRef.current) {
+            const absoluteCharIndex = startIndex + event.charIndex;
+            const progress = (absoluteCharIndex / practiceText.length) * 100;
+            setLocalProgress(progress);
+            localCharOffsetRef.current = absoluteCharIndex;
+          }
+        };
+        
+        utterance.onend = () => {
+          if (!isSeekingRef.current) {
+            setAiIsPlaying(false);
+            setLocalProgress(100);
+            localCharOffsetRef.current = 0;
+          }
+        };
 
-    utterance.onerror = () => {
-        setAiIsPlaying(false);
-    };
+        utterance.onerror = (e) => {
+            console.error("Speech Error:", e);
+            setAiIsPlaying(false);
+        };
 
-    setAiIsPlaying(true);
-    window.speechSynthesis.speak(utterance);
+        setAiIsPlaying(true);
+        window.speechSynthesis.speak(utterance);
+    }, 50);
   };
 
   const toggleAiPlay = async () => {
@@ -270,10 +270,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     preferredVoice.name.toLowerCase().includes('kokoro')
   );
   
-  const isLowQualityVoice = preferredVoice && 
-    !isHighQualityCustom && 
-    !preferredVoice.name.match(/Enhanced|Premium|Siri|Natural|Google/i);
-
   return (
     <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
       {/* Header */}
@@ -289,13 +285,12 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
       <div className="flex-1 p-4 md:p-6 max-w-2xl mx-auto w-full flex flex-col gap-4 pb-32">
         
-        {/* VIEW: INPUT TEXT */}
         {state === 'input' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
               <div className="text-sm text-indigo-200/70">
-                输入练习句子。推荐在 Android 系统设置中将首选引擎切换为 <b>Next-gen Kaldi</b> 以获得 Kokoro 顶级离线音质。
+                输入练习句子。应用会自动识别系统设置中的默认语音引擎。
               </div>
             </div>
             
@@ -316,7 +311,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* VIEW: PRACTICE & RESULT */}
         {(state === 'practice' || state === 'processing' || state === 'result') && (
           <div className="space-y-4 animate-in fade-in zoom-in-95">
             
@@ -347,21 +341,13 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                 {practiceText}
               </div>
 
-              {/* Status Hint */}
               {voiceMode === 'local' && (
-                <>
-                  {isHighQualityCustom ? (
-                    <div className="mb-4 bg-emerald-500/10 border border-emerald-500/20 p-2 rounded-lg flex items-center gap-2">
-                        <Sparkles size={12} className="text-emerald-500 shrink-0" />
-                        <span className="text-[9px] text-emerald-200/70 leading-tight">已激活 <b>Next-gen Kaldi (Kokoro)</b>。当前处于顶级离线发音模式。</span>
-                    </div>
-                  ) : isLowQualityVoice ? (
-                    <div className="mb-4 bg-amber-500/10 border border-amber-500/20 p-2 rounded-lg flex items-center gap-2">
-                        <AlertCircle size={12} className="text-amber-500 shrink-0" />
-                        <span className="text-[9px] text-amber-200/70 leading-tight">检测到基础语音。请在系统设置中确保已开启并选中 <b>Next-gen Kaldi</b> 引擎。</span>
-                    </div>
-                  ) : null}
-                </>
+                <div className="mb-4 bg-slate-950/50 border border-slate-800 p-2 rounded-lg flex items-center gap-2">
+                    {isHighQualityCustom ? <Sparkles size={12} className="text-emerald-500" /> : <Volume2 size={12} className="text-slate-500" />}
+                    <span className="text-[9px] text-slate-400">
+                        当前引擎: <b>{preferredVoice ? preferredVoice.name : "系统默认 (System Default)"}</b>
+                    </span>
+                </div>
               )}
 
               <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl">
@@ -409,7 +395,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                             {voiceMode === 'local' && (
                                 <div className="flex flex-col items-end">
                                     <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">极速模式</span>
-                                    {preferredVoice && <span className="text-[8px] text-slate-600 truncate max-w-[80px]">{preferredVoice.name}</span>}
                                 </div>
                             )}
                         </div>
@@ -435,9 +420,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
               )}
             </div>
 
-            {/* RECORDING / ACTION SECTION */}
             <div className="flex flex-col items-center pt-8">
-              
               {state === 'practice' && (
                 <div className="flex flex-col items-center gap-4">
                   <div className="relative">
