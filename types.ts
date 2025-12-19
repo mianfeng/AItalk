@@ -1,3 +1,4 @@
+
 export type ItemType = 'word' | 'sentence' | 'idiom';
 
 export interface StudyItem {
@@ -14,6 +15,16 @@ export interface StudyItem {
   masteryLevel?: number; // New: Display current familiarity level (0-5)
 }
 
+export interface PracticeExercise {
+  word: string;
+  sentence: string; // Original sentence for study
+  sentenceZh: string; // Chinese translation
+  quizQuestion: string; // Question with a blank (e.g., "I feel very ___ today.")
+  options: string[]; // 4 multiple choice options
+  correctAnswer: string;
+  explanation: string; // Why this word fits
+}
+
 export interface VocabularyItem extends StudyItem {
   addedAt: number;
   nextReviewAt: number;
@@ -27,37 +38,11 @@ export interface DailyStats {
   completedSpeaking: boolean;
 }
 
-// Conversation Mode Types
-export interface AnalysisResult {
-  userTranscript: string;
-  betterVersion: string;
-  analysis: string; // Chinese explanation
-  pronunciation: string; // New: Specific feedback on intonation/pronunciation
-  chunks: string[]; // New: Useful phrases extracted from betterVersion
-  score: number; // 1-100
-  replyText: string; // AI's response to continue conversation
-}
-
-export interface DailyQuoteItem {
-  english: string;
-  chinese: string;
-  source: string;
-}
-
-// Data Export/Import Structure
-export interface BackupData {
-  vocabList: VocabularyItem[];
-  dailyStats: DailyStats;
-  timestamp: number;
-  version: number;
-}
-
+// ... existing types remain the same
 export interface SessionResult {
     item: StudyItem;
     remembered: boolean;
 }
-
-// Gemini Live / Scenario Types
 
 export interface Scenario {
   id: string;
@@ -94,4 +79,36 @@ export interface ConversationSession {
   history: {user: string, ai: string}[];
   targetWords: VocabularyItem[];
   lastUpdated: number;
+}
+
+/**
+ * Fix: Added missing AnalysisResult interface used for AI audio analysis feedback.
+ */
+export interface AnalysisResult {
+  userTranscript: string;
+  betterVersion: string;
+  analysis: string;
+  pronunciation: string;
+  chunks: string[];
+  score: number;
+  replyText: string;
+}
+
+/**
+ * Fix: Added missing DailyQuoteItem interface used for the daily quote feature.
+ */
+export interface DailyQuoteItem {
+  english: string;
+  chinese: string;
+  source: string;
+}
+
+/**
+ * Fix: Added missing BackupData interface used for exporting and importing application data.
+ */
+export interface BackupData {
+  vocabList: VocabularyItem[];
+  dailyStats: DailyStats;
+  timestamp: number;
+  version: number;
 }

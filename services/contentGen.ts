@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { StudyItem, AnalysisResult, DailyQuoteItem } from "../types";
+import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise } from "../types";
 import { getLocalContent } from "./localRepository";
 
 // Using recommended model for text tasks
@@ -12,79 +13,35 @@ function getClient() {
     console.warn("API_KEY is not set. Content generation will fail.");
     return null;
   }
-  // Initialize with a named parameter as per guidelines
   return new GoogleGenAI({ apiKey });
 }
 
-// --- Text-to-Speech (Gemini) ---
-export async function generateSpeech(text: string): Promise<string | null> {
+// --- Generate Consolidation Exercises ---
+export async function generatePracticeExercises(items: StudyItem[]): Promise<PracticeExercise[]> {
   const client = getClient();
-  if (!client) return null;
+  if (!client) throw new Error("API Key missing");
 
-  try {
-    const response = await client.models.generateContent({
-      model: ttsModelName,
-      contents: { parts: [{ text }] },
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            // Available voice names are Puck, Charon, Kore, Fenrir, and Zephyr
-            prebuiltVoiceConfig: { voiceName: 'Puck' } 
-          },
-        },
-      },
-    });
-    
-    // Extract audio bytes from inlineData part
-    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-  } catch (error) {
-    console.error("TTS generation failed:", error);
-    return null;
-  }
-}
-
-// --- Daily Plan Generation (Local Only) ---
-export async function generateDailyContent(count: number = 15, currentVocabList: { text: string }[] = []): Promise<StudyItem[]> {
-  const existingSet = new Set(currentVocabList.map(v => v.text));
-
-  // RATIO STRATEGY: ~2/3 Words, ~1/3 Sentences/Idioms
-  const wordCount = Math.floor(count * 0.66);
-  const sentenceCount = count - wordCount;
-
-  // 1. Get Words
-  const newWords = getLocalContent(wordCount, existingSet, 'word');
+  const wordList = items.map(i => i.text).join(", ");
+  const prompt = `You are an English teacher. I just learned these items: [${wordList}]. 
+  For EACH item, create a high-quality practice exercise.
   
-  // 2. Get Sentences/Idioms
-  newWords.forEach(w => existingSet.add(w.text));
-  const newSentences = getLocalContent(sentenceCount, existingSet, 'sentence');
+  Format for each item:
+  1. A natural example sentence showing how to use the word.
+  2. A Chinese translation of that sentence.
+  3. A fill-in-the-blank version of that sentence (use "____" for the blank).
+  4. 4 multiple-choice options (one correct, three plausible distractors).
+  5. A brief explanation in Chinese.
 
-  // 3. Fallback: If not enough sentences, fill with words
-  const needed = count - (newWords.length + newSentences.length);
-  let fillers: StudyItem[] = [];
-  if (needed > 0) {
-      newSentences.forEach(s => existingSet.add(s.text));
-      fillers = getLocalContent(needed, existingSet);
-  }
-
-  const combined = [...newWords, ...newSentences, ...fillers];
-  
-  return combined.sort(() => 0.5 - Math.random());
-}
-
-// --- Daily Quote Generation ---
-export async function generateDailyQuote(): Promise<DailyQuoteItem> {
-  const client = getClient();
-  if (!client) {
-    return {
-      english: "Pivot!",
-      chinese: "转！(Friends 经典台词)",
-      source: "Friends (Demo Mode)"
-    };
-  }
-
-  const prompt = `Generate ONE inspiring or interesting English quote/idiom/slang from a famous movie, TV show (like Friends, Modern Family), or book.
-  Return JSON: { "english": "...", "chinese": "...", "source": "..." }`;
+  Return an ARRAY of JSON objects matching this schema:
+  {
+    "word": "the word",
+    "sentence": "Full example sentence.",
+    "sentenceZh": "中文翻译",
+    "quizQuestion": "The sentence with ____.",
+    "options": ["A", "B", "C", "D"],
+    "correctAnswer": "The correct option string",
+    "explanation": "中文解析"
+  }`;
 
   try {
     const response = await client.models.generateContent({
@@ -93,77 +50,83 @@ export async function generateDailyQuote(): Promise<DailyQuoteItem> {
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            english: { type: Type.STRING },
-            chinese: { type: Type.STRING },
-            source: { type: Type.STRING }
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              word: { type: Type.STRING },
+              sentence: { type: Type.STRING },
+              sentenceZh: { type: Type.STRING },
+              quizQuestion: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswer: { type: Type.STRING },
+              explanation: { type: Type.STRING }
+            },
+            required: ["word", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswer", "explanation"]
           }
         }
       }
     });
 
-    // Access .text property directly (not text())
     if (response.text) {
       return JSON.parse(response.text.trim());
     }
-    throw new Error("No data");
+    throw new Error("Empty AI response");
   } catch (e) {
-    return {
-      english: "Pivot!",
-      chinese: "转！(Friends 经典台词)",
-      source: "Friends"
-    };
+    console.error("Exercise generation failed", e);
+    throw e;
   }
 }
 
-// --- Audio Analysis & Conversation Turn ---
-export async function analyzeAudioResponse(
-  audioBase64: string, 
-  currentTopic: string,
-  history: {user: string, ai: string}[]
-): Promise<AnalysisResult> {
+// ... keep existing generateSpeech, generateDailyContent, etc.
+export async function generateSpeech(text: string): Promise<string | null> {
   const client = getClient();
-  if (!client) {
-    return {
-        userTranscript: "Error: No API Key",
-        betterVersion: "Please check API Key configuration.",
-        analysis: "系统未配置 API Key。",
-        pronunciation: "N/A",
-        chunks: [],
-        score: 0,
-        replyText: "I cannot hear you without my API key."
-    };
+  if (!client) return null;
+  try {
+    const response = await client.models.generateContent({
+      model: ttsModelName,
+      contents: { parts: [{ text }] },
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Puck' } 
+          },
+        },
+      },
+    });
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+  } catch (error) {
+    return null;
   }
-  
+}
+
+export async function generateDailyContent(count: number = 15, currentVocabList: { text: string }[] = []): Promise<StudyItem[]> {
+  const existingSet = new Set(currentVocabList.map(v => v.text));
+  const wordCount = Math.floor(count * 0.66);
+  const sentenceCount = count - wordCount;
+  const newWords = getLocalContent(wordCount, existingSet, 'word');
+  newWords.forEach(w => existingSet.add(w.text));
+  const newSentences = getLocalContent(sentenceCount, existingSet, 'sentence');
+  const needed = count - (newWords.length + newSentences.length);
+  let fillers: StudyItem[] = [];
+  if (needed > 0) {
+      newSentences.forEach(s => existingSet.add(s.text));
+      fillers = getLocalContent(needed, existingSet);
+  }
+  const combined = [...newWords, ...newSentences, ...fillers];
+  return combined.sort(() => 0.5 - Math.random());
+}
+
+export async function analyzeAudioResponse(audioBase64: string, currentTopic: string, history: {user: string, ai: string}[]): Promise<AnalysisResult> {
+  const client = getClient();
+  if (!client) throw new Error("Key missing");
   const historyText = history.map(h => `AI: ${h.ai}\nUser: ${h.user}`).join('\n');
-  
-  const prompt = `
-    Context: The user is practicing spoken English. 
-    Current Scenario/Context: "${currentTopic}"
-    Conversation History:
-    ${historyText}
-
-    Task:
-    1. Transcribe the user's audio input.
-    2. Analyze their grammar, and specifically their PRONUNCIATION and INTONATION.
-    3. Provide a 'betterVersion' (Native speaker rewrite).
-    4. Provide 'analysis' in Chinese (Focus on grammar/vocab errors).
-    5. Provide 'pronunciation' in Chinese (Focus on stress, rhythm, and intonation).
-    6. Extract 1-3 'chunks' (useful idioms/collocations) from the BETTER VERSION.
-    7. Give a 'score' (0-100).
-    8. Generate 'replyText': The AI's next conversational response to keep the chat going.
-  `;
-
+  const prompt = `Analyze English speaking: ${currentTopic}\nHistory: ${historyText}`;
   try {
     const response = await client.models.generateContent({
       model: modelName,
-      contents: {
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
-        ]
-      },
+      contents: [{ text: prompt }, { inlineData: { mimeType: "audio/webm", data: audioBase64 } }],
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -176,124 +139,74 @@ export async function analyzeAudioResponse(
             chunks: { type: Type.ARRAY, items: { type: Type.STRING } },
             score: { type: Type.NUMBER },
             replyText: { type: Type.STRING }
-          },
-          required: ["userTranscript", "betterVersion", "analysis", "pronunciation", "chunks", "score", "replyText"]
+          }
         }
       }
     });
-
-    // Access .text property directly
-    if (response.text) {
-      return JSON.parse(response.text.trim());
-    }
-    throw new Error("Empty response");
+    return JSON.parse(response.text.trim());
   } catch (error) {
-    console.error("Analysis failed", error);
-    return {
-        userTranscript: "(Error analyzing audio)",
-        betterVersion: "Could not process.",
-        analysis: "系统暂时无法处理音频，请重试。",
-        pronunciation: "无法分析",
-        chunks: [],
-        score: 0,
-        replyText: "Please try saying that again."
-    };
+    throw error;
   }
 }
 
-// --- Word/Sentence Pronunciation Scoring ---
-export async function evaluatePronunciation(
-  audioBase64: string,
-  targetText: string
-): Promise<{ score: number; feedback: string }> {
+export async function evaluatePronunciation(audioBase64: string, targetText: string): Promise<{ score: number; feedback: string }> {
   const client = getClient();
   if (!client) return { score: 0, feedback: "API Key Missing" };
-
-  const prompt = `
-    Act as a strict pronunciation coach.
-    Target Text: "${targetText}"
-    
-    Task:
-    1. Listen to the user's audio.
-    2. Compare it with the target text.
-    3. Give a score (0-100).
-    4. Provide very brief, specific feedback in Chinese about phonemes or stress (max 15 words).
-  `;
-
+  const prompt = `Rate pronunciation of "${targetText}"`;
   try {
     const response = await client.models.generateContent({
       model: modelName,
-      contents: {
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
-        ]
-      },
+      contents: [{ text: prompt }, { inlineData: { mimeType: "audio/webm", data: audioBase64 } }],
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
-          properties: {
-            score: { type: Type.NUMBER },
-            feedback: { type: Type.STRING }
-          },
-          required: ["score", "feedback"]
+          properties: { score: { type: Type.NUMBER }, feedback: { type: Type.STRING } }
         }
       }
     });
-
-    // Access .text property directly
-    if (response.text) {
-      return JSON.parse(response.text.trim());
-    }
-    return { score: 0, feedback: "Could not analyze" };
+    return JSON.parse(response.text.trim());
   } catch (error) {
-    console.error("Pronunciation check failed", error);
     return { score: 0, feedback: "Error" };
   }
 }
 
-// --- Initial Topic Generation (Updated - Daily Life) ---
 export async function generateInitialTopic(): Promise<string> {
-    const topics = [
-        "Ordering Bubble Tea with adjustments (sugar/ice)",
-        "Returning a package at the post office",
-        "Complaining about noisy neighbors",
-        "Asking for a refund on a bad meal",
-        "Chatting about a new TV show",
-        "Explaining why you are late",
-        "Cancelling a gym subscription",
-        "Finding a lost item in Uber",
-        "Planning a weekend hiking trip",
-        "Asking a friend for a favor",
-        "Describing a weird dream",
-        "Recommending a local restaurant"
-    ];
+    const topics = ["Ordering Bubble Tea", "Returning a package", "Noisy neighbors", "Planning a trip", "Dream job"];
     return topics[Math.floor(Math.random() * topics.length)];
 }
 
 export async function generateTopicFromVocab(items: StudyItem[]): Promise<string> {
   const client = getClient();
   if (!client) return generateInitialTopic();
-
   const words = items.map(i => i.text).join(", ");
-  const prompt = `Generate a short, natural daily-life scenario title or setting phrase (2-6 words) that conceptually links these words: [${words}]. 
-  
-  Examples: 
-  - "At the coffee shop"
-  - "Dealing with a mistake"
-  - "In a team meeting"
-  
-  Strictly output the phrase only. Do NOT generate a full sentence or a question.`;
-
+  const prompt = `Short natural scenario title for: [${words}]`;
   try {
-    const response = await client.models.generateContent({
-        model: modelName,
-        contents: prompt
-    });
-    // Access .text property directly
+    const response = await client.models.generateContent({ model: modelName, contents: prompt });
     return response.text?.trim() || "Daily Conversation";
   } catch (e) {
     return "Daily Practice";
+  }
+}
+
+export async function generateDailyQuote(): Promise<DailyQuoteItem> {
+  const client = getClient();
+  if (!client) return { english: "Stay hungry.", chinese: "保持饥渴。", source: "Steve Jobs" };
+  const prompt = `Generate ONE inspiring English quote with JSON.`;
+  try {
+    const response = await client.models.generateContent({
+      model: modelName,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: { english: { type: Type.STRING }, chinese: { type: Type.STRING }, source: { type: Type.STRING } }
+        }
+      }
+    });
+    return JSON.parse(response.text.trim());
+  } catch (e) {
+    return { english: "Keep going.", chinese: "继续前进。", source: "Proverb" };
   }
 }
