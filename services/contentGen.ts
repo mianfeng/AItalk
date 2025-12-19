@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise } from "../types";
 import { getLocalContent } from "./localRepository";
@@ -6,8 +7,9 @@ import { getLocalContent } from "./localRepository";
 const GENERAL_MODEL_NAME = "gemini-3-flash-preview";
 const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts";
 
-// 2. DeepSeek 配置 (从环境变量获取)
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ""; 
+// 2. DeepSeek 配置 (尝试从环境变量获取)
+// 兼容不同环境下的变量读取
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";
 
 function getGeminiClient() {
@@ -17,15 +19,14 @@ function getGeminiClient() {
 }
 
 /**
- * 每日巩固 - 使用 DeepSeek API 调用 (节省成本)
+ * 每日巩固 - 核心生成函数
  */
 export async function generatePracticeExercises(items: StudyItem[]): Promise<PracticeExercise[]> {
-  if (!DEEPSEEK_API_KEY) {
-    console.warn("DeepSeek API Key missing in environment, falling back to Gemini...");
+  // 如果没有配置 DeepSeek Key，直接使用 Gemini 生成，不再打印警告
+  if (!DEEPSEEK_API_KEY || DEEPSEEK_API_KEY.length < 5) {
     return generatePracticeExercisesWithGemini(items);
   }
 
-  // 将单词按 3 个一组切分
   const wordGroups: string[][] = [];
   for (let i = 0; i < items.length; i += 3) {
     if (i + 2 < items.length) {
@@ -35,79 +36,66 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
 
   if (wordGroups.length === 0) return [];
 
-  const prompt = `You are an expert English Language Professor. Create ${wordGroups.length} vocabulary exercises.
-  For EACH group of three words, you MUST write ONE natural English sentence using ALL THREE words.
+  const prompt = `You are an expert English Professor. Create ${wordGroups.length} vocabulary exercises.
+  Input Groups: ${wordGroups.map((g, idx) => `Group ${idx + 1}: [${g.join(", ")}]`).join("\n")}
   
-  Input Groups:
-  ${wordGroups.map((g, idx) => `Group ${idx + 1}: [${g.join(", ")}]`).join("\n")}
-
-  Respond with a JSON object containing an "exercises" array. Each exercise needs:
-  - "word": the first word of the group (to be blanked).
-  - "targetWords": all 3 words.
-  - "sentence": the full sentence.
-  - "sentenceZh": Chinese translation.
-  - "quizQuestion": the sentence with the "word" replaced by "____".
-  - "options": 4 distractor options including the correct word.
-  - "correctAnswer": the correct word.
-  - "explanation": clear Chinese explanation of all three words' usage.`;
+  Respond with a JSON object containing an "exercises" array. Each:
+  {
+    "word": "first word",
+    "targetWords": ["word1", "word2", "word3"],
+    "sentence": "full sentence using all three words",
+    "sentenceZh": "中文翻译",
+    "quizQuestion": "sentence with ____",
+    "options": ["A", "B", "C", "D"],
+    "correctAnswer": "word",
+    "explanation": "中文解析"
+  }`;
 
   try {
     const response = await fetch(DEEPSEEK_BASE_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY.trim()}`
       },
       body: JSON.stringify({
         model: "deepseek-chat",
         messages: [
-          { role: "system", content: "You are a helpful assistant that only outputs JSON." },
+          { role: "system", content: "You are a professional English tutor that only outputs JSON." },
           { role: "user", content: prompt }
         ],
-        // 开启 JSON 模式，确保返回有效的 JSON 对象
         response_format: { type: 'json_object' },
         temperature: 0.7
       })
     });
 
-    // 核心修复：先获取文本内容，避免直接 response.json() 导致的 Unexpected end of input
-    const responseText = await response.text();
-    
+    // 健壮性修复：如果返回失败，读取 body 一次并抛出
     if (!response.ok) {
-      console.error(`DeepSeek API Error (${response.status}):`, responseText);
-      throw new Error(`DS API Failed: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`DeepSeek API Error (${response.status}):`, errorText);
+      throw new Error(`API_STATUS_${response.status}`);
     }
 
-    const data = JSON.parse(responseText);
+    const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
-    
-    if (!content) throw new Error("DeepSeek returned empty message content");
+    if (!content) throw new Error("EMPTY_CONTENT");
 
     const parsed = JSON.parse(content);
-    // 兼容返回数组或包含 exercises 键的对象
-    const exercises = Array.isArray(parsed) ? parsed : (parsed.exercises || []);
-    
-    if (exercises.length === 0) {
-        throw new Error("No exercises found in AI response");
-    }
-
-    return exercises;
+    return Array.isArray(parsed) ? parsed : (parsed.exercises || []);
     
   } catch (e) {
-    console.error("DeepSeek Process Failed, falling back to Gemini:", e);
+    // 捕获所有错误（包括网络、鉴权、解析），无缝降级到 Gemini
+    console.info("DeepSeek unavailable, using Gemini fallback.");
     return generatePracticeExercisesWithGemini(items);
   }
 }
 
 /**
- * 每日巩固 - Gemini 备选/兜底逻辑
+ * 每日巩固 - Gemini 兜底逻辑
  */
 async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<PracticeExercise[]> {
   const client = getGeminiClient();
-  if (!client) {
-    console.error("Gemini API Key also missing!");
-    return [];
-  }
+  if (!client) return [];
 
   const wordGroups: string[][] = [];
   for (let i = 0; i < items.length; i += 3) {
@@ -116,7 +104,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
     }
   }
 
-  const prompt = `Create ${wordGroups.length} English exercises in JSON array for: ${JSON.stringify(wordGroups)}. 
+  const prompt = `Create ${wordGroups.length} English exercises in JSON array for these word groups: ${JSON.stringify(wordGroups)}. 
   Each object needs: word, targetWords, sentence, sentenceZh, quizQuestion, options, correctAnswer, explanation.`;
 
   try {
@@ -147,7 +135,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
 
     return JSON.parse(response.text?.trim() || "[]");
   } catch (e) {
-    console.error("Gemini Fallback Failed:", e);
+    console.error("Critical Failure: Both AI providers failed.", e);
     return []; 
   }
 }
@@ -226,7 +214,6 @@ export async function generateSpeech(text: string): Promise<string | null> {
       model: SPEECH_MODEL_NAME,
       contents: { parts: [{ text }] },
       config: {
-        // Fixed typo: changed responseModalities to responseModalities
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
