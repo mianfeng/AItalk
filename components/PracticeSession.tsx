@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { PracticeExercise } from '../types';
-import { CheckCircle2, XCircle, ArrowRight, Sparkles, Volume2, Loader2, Info, Trophy, Zap, Play } from 'lucide-react';
-import { playAudioFromBase64, getPreferredVoice } from '../services/audioUtils';
-import { generateSpeech } from '../services/contentGen';
+import { CheckCircle2, XCircle, ArrowRight, Sparkles, Volume2, Loader2, Trophy, Zap, Play } from 'lucide-react';
+import { getPreferredVoice } from '../services/audioUtils';
 
 interface PracticeSessionProps {
   exercises: PracticeExercise[];
@@ -21,7 +20,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [correctResults, setCorrectResults] = useState<string[]>([]);
   const [isFinished, setIsFinished] = useState(false);
   
-  const [ttsMode, setTtsMode] = useState<'ai' | 'local'>('local');
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   useEffect(() => {
@@ -32,23 +30,34 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     };
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      window.speechSynthesis.cancel();
+    };
   }, []);
 
   const currentExercise = exercises[currentIndex];
 
-  // Helper to highlight target words in sentence
+  // Robust Text Highlighter with Regex Escaping to prevent crashes
   const renderHighlightedText = (text: string, targets: string[]) => {
-    // Sort targets by length descending to prevent partial replacements (e.g., "book" in "bookstore")
-    const sortedTargets = [...targets].sort((a, b) => b.length - a.length);
+    if (!text) return null;
+    
+    // 1. Escape targets to prevent regex injection/crashes
+    const escapedTargets = targets.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const sortedTargets = [...escapedTargets].sort((a, b) => b.length - a.length);
+    
+    // 2. Build safe regex pattern
+    // Matching "____" or any of the target words (case-insensitive)
     const pattern = new RegExp(`(${sortedTargets.join('|')}|_{4,})`, 'gi');
     const parts = text.split(pattern);
 
     return parts.map((part, i) => {
-      if (part === '____') {
-          return <span key={i} className="px-2 py-0.5 mx-1 rounded bg-slate-800 border border-slate-700 text-blue-400 font-bold">____</span>;
+      if (!part) return null;
+      if (part.includes('____')) {
+          return <span key={i} className="px-2 py-0.5 mx-1 rounded bg-slate-800 border border-slate-700 text-blue-400 font-bold shadow-inner">____</span>;
       }
+      // Compare original part with original targets (un-escaped)
       if (targets.some(t => t.toLowerCase() === part.toLowerCase())) {
-        return <span key={i} className="text-blue-400 font-bold decoration-blue-500/30 decoration-2 underline-offset-4">{part}</span>;
+        return <span key={i} className="text-blue-400 font-bold decoration-blue-500/30 underline-offset-4">{part}</span>;
       }
       return part;
     });
@@ -64,6 +73,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const handleNext = () => {
+    window.speechSynthesis.cancel(); // Stop any pending speech
     if (currentIndex < exercises.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setSelectedOption(null);
@@ -81,28 +91,20 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     utterance.lang = 'en-US';
     if (preferredVoice) utterance.voice = preferredVoice;
     utterance.onend = () => setPlayingWord(null);
+    utterance.onerror = () => setPlayingWord(null);
     window.speechSynthesis.speak(utterance);
   };
 
-  const playSentence = async () => {
+  const playSentence = () => {
     if (isPlaying) return;
     setIsPlaying(true);
-
-    if (ttsMode === 'local') {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(currentExercise.sentence);
-      utterance.lang = 'en-US';
-      if (preferredVoice) utterance.voice = preferredVoice;
-      utterance.onend = () => setIsPlaying(false);
-      utterance.onerror = () => setIsPlaying(false);
-      window.speechSynthesis.speak(utterance);
-    } else {
-      try {
-        const base64 = await generateSpeech(currentExercise.sentence);
-        if (base64) await playAudioFromBase64(base64);
-      } catch (e) { console.error(e); }
-      finally { setIsPlaying(false); }
-    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(currentExercise.sentence);
+    utterance.lang = 'en-US';
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.onend = () => setIsPlaying(false);
+    utterance.onerror = () => setIsPlaying(false);
+    window.speechSynthesis.speak(utterance);
   };
 
   if (isFinished) {
@@ -122,7 +124,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   }
 
   return (
-    <div className="h-full flex flex-col bg-slate-950 p-4 md:p-6 overflow-y-auto">
+    <div className="h-full flex flex-col bg-slate-950 p-4 md:p-6 overflow-y-auto custom-scrollbar">
       <div className="max-w-xl mx-auto w-full flex flex-col gap-6 pb-20">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -137,9 +139,8 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         <div className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-6 md:p-8 shadow-2xl relative overflow-hidden">
           <div className="flex items-center justify-between mb-8">
             <div className="px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[10px] font-bold text-blue-400 uppercase tracking-widest">三词语境巩固</div>
-            <div className="flex bg-slate-950/80 backdrop-blur p-1 rounded-xl border border-slate-800">
-                <button onClick={() => setTtsMode('local')} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 ${ttsMode === 'local' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}><Zap size={10} /> 极速</button>
-                <button onClick={() => setTtsMode('ai')} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 ${ttsMode === 'ai' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}><Volume2 size={10} /> AI</button>
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-950/80 rounded-lg border border-slate-800 text-[10px] font-bold text-slate-500">
+                <Zap size={10} className="text-amber-500" /> 本地发音
             </div>
           </div>
 
@@ -195,7 +196,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                  </button>
                </div>
 
-               {/* Individual Word Pronunciation Row */}
                <div className="flex flex-wrap gap-2 mb-4 pb-4 border-b border-slate-900/50">
                   {currentExercise.targetWords.map((word, i) => (
                     <button 

@@ -16,33 +16,36 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
   const client = getClient();
   if (!client) throw new Error("API Key missing");
 
+  // Ensure items are processed in strict chunks of 3
   const wordGroups: string[][] = [];
   for (let i = 0; i < items.length; i += 3) {
-    wordGroups.push(items.slice(i, i + 3).map(it => it.text));
+    if (i + 2 < items.length) {
+      wordGroups.push(items.slice(i, i + 3).map(it => it.text));
+    }
   }
 
-  const prompt = `You are an English professor. I am providing you with ${wordGroups.length} groups of vocabulary words.
-  For EACH group, you must:
-  1. Create ONE natural, sophisticated sentence that contains ALL THREE words from the group.
-  2. Provide a Chinese translation of this sentence.
-  3. Create a fill-in-the-blank version of that sentence. The blank (____) must be for the FIRST word in the group list.
-  4. Provide 4 multiple-choice options for that blank.
-  5. Provide an explanation in Chinese. CRITICAL: The explanation MUST briefly explain the meaning and usage of ALL THREE words in the group.
+  const prompt = `You are an English professor. Create ${wordGroups.length} quiz questions.
+  For EACH group of words, follow these steps exactly:
+  1. Create ONE natural sentence that contains ALL THREE words.
+  2. Translate the sentence to Chinese.
+  3. Create a fill-in-the-blank version (____) where the first word in the list is missing.
+  4. Provide 4 choices (A, B, C, D).
+  5. Provide a detailed Chinese explanation of all three words' usage in this sentence.
 
-  Input Groups:
+  Groups:
   ${wordGroups.map((g, idx) => `Group ${idx + 1}: [${g.join(", ")}]`).join("\n")}
 
-  Return an ARRAY of JSON objects:
-  {
-    "word": "the word in blank",
+  JSON format only:
+  [{
+    "word": "word-in-blank",
     "targetWords": ["word1", "word2", "word3"],
-    "sentence": "Full sentence...",
-    "sentenceZh": "中文...",
-    "quizQuestion": "Sentence with ____...",
+    "sentence": "full sentence",
+    "sentenceZh": "中文翻译",
+    "quizQuestion": "sentence with ____",
     "options": ["A", "B", "C", "D"],
     "correctAnswer": "A",
-    "explanation": "解析: 1. [word1]的意思... 2. [word2]的意思... 3. [word3]的意思..."
-  }`;
+    "explanation": "解析内容"
+  }]`;
 
   try {
     const response = await client.models.generateContent({
@@ -70,10 +73,12 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
       }
     });
 
-    return JSON.parse(response.text.trim());
+    const text = response.text?.trim() || "[]";
+    return JSON.parse(text);
   } catch (e) {
-    console.error("Exercise generation failed", e);
-    throw e;
+    console.error("Critical: Exercise generation failed", e);
+    // Return empty array to allow App to handle gracefully without crashing
+    throw new Error("生成练习题目失败，请检查网络或重试。");
   }
 }
 
