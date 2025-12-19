@@ -53,6 +53,16 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     );
   }
 
+  // Helper: Normalize strings for robust comparison
+  const normalize = (str: string | null) => {
+    if (!str) return "";
+    return str
+      .toLowerCase()
+      .trim()
+      .replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'") // 统一各种弯引号为标准单引号
+      .replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"'); // 统一双引号
+  };
+
   const handleOptionClick = (word: string) => {
     if (isCorrect !== null) return; 
     const emptyIndex = userAnswers.indexOf(null);
@@ -71,11 +81,15 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const checkAnswer = () => {
-    const correct = userAnswers.every((ans, i) => ans === currentExercise.correctAnswers[i]);
+    // Use normalized strings for comparison
+    const correct = userAnswers.every((ans, i) => 
+        normalize(ans) === normalize(currentExercise.correctAnswers[i])
+    );
+    
     setIsCorrect(correct);
     setShowExplanation(true);
+    
     if (correct) {
-      // Add all target words from this exercise to the session results
       setCorrectResults(prev => {
         const newSet = new Set([...prev, ...(currentExercise.correctAnswers || [])]);
         return Array.from(newSet);
@@ -128,7 +142,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         elements.push(<span key={`text-${i}`} className="text-slate-300 font-medium text-lg leading-loose">{parts[i]}</span>);
         if (i < correctAnsCount) { 
             const ans = userAnswers[i];
-            const isWordCorrect = isCorrect !== null && ans === currentExercise.correctAnswers[i];
+            // Visualization should also use normalized comparison
+            const isWordCorrect = isCorrect !== null && normalize(ans) === normalize(currentExercise.correctAnswers[i]);
+            
             elements.push(
                 <button
                     key={`slot-${i}`}

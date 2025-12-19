@@ -43,14 +43,20 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   if (wordGroups.length === 0) return [];
 
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
+  
+  RULES FOR INFLECTION:
+  1. If a target word like "be" becomes "is/are/was" in your sentence, the "correctAnswers" and "options" MUST use the inflected form (e.g., "is") to match the sentence.
+  2. If "one's" is used, replace it with a natural possessive like "his", "her", or "my" in the sentence, correctAnswers, and options.
+  3. The "targetWords" array should still keep the original base forms for reference.
+  
   For EACH group, provide:
-  1. "targetWords": The 3 words in this group as an array.
-  2. "sentence": A natural sentence using all 3 words.
+  1. "targetWords": The 3 original words.
+  2. "sentence": A natural sentence using those words (inflected if needed).
   3. "sentenceZh": Chinese translation.
-  4. "quizQuestion": The sentence where the 3 words are replaced by "____".
-  5. "correctAnswers": The 3 words in correct order.
-  6. "options": The 3 correct words plus 3 distractors.
-  7. "explanation": Chinese analysis.
+  4. "quizQuestion": The sentence where the 3 inflected words are replaced by "____".
+  5. "correctAnswers": The exact 3 strings that fill the blanks in correct order.
+  6. "options": The 3 correct strings plus 3 distractors.
+  7. "explanation": Chinese analysis explaining the usage and any word form changes.
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
@@ -87,7 +93,9 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
     }
   }
 
-  const prompt = `Create exercises for: ${JSON.stringify(wordGroups)}. Return JSON array of objects with targetWords, sentence, sentenceZh, quizQuestion(with 3 ____), options(6 words), correctAnswers(ordered), explanation(Chinese).`;
+  const prompt = `Create exercises for: ${JSON.stringify(wordGroups)}. 
+  Note: If a word needs inflection (e.g. 'be' -> 'is', 'one's' -> 'his'), use the specific form in 'sentence', 'correctAnswers', and 'options' so they match the blanks perfectly. 
+  Return JSON array of objects with targetWords(base forms), sentence, sentenceZh, quizQuestion(with 3 ____), options(6 words, matching the blanks), correctAnswers(ordered, matching the blanks), explanation(Chinese, mention form changes).`;
 
   try {
     const response = await client.models.generateContent({

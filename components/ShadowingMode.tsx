@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
@@ -29,6 +30,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const [localProgress, setLocalProgress] = useState(0); // 0 to 100
   const localCharOffsetRef = useRef(0);
   const isSeekingRef = useRef(false);
+  const localTimerRef = useRef<number | null>(null);
   
   // User Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -57,17 +59,14 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       return false;
     };
 
-    // Initial load
     if (!loadVoices()) {
       setVoiceLoadingStatus('正在查找引擎...');
     }
 
-    // Listener
     window.speechSynthesis.onvoiceschanged = () => {
       loadVoices();
     };
 
-    // Polling backup for some Android devices where onvoiceschanged doesn't fire
     const timer = setInterval(() => {
       if (loadVoices() || retryCount >= maxRetries) {
         clearInterval(timer);
@@ -78,6 +77,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     return () => {
       clearInterval(timer);
       window.speechSynthesis.onvoiceschanged = null;
+      if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     };
   }, []);
 
@@ -95,6 +95,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const resetSession = () => {
     stopAllRecording();
     window.speechSynthesis.cancel();
+    if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     if (aiAudioUrl) URL.revokeObjectURL(aiAudioUrl);
     if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
     setAiAudioUrl(null);
@@ -135,10 +136,38 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     return null;
   };
 
+  // 极速模式：平滑计时器，解决 boundary 不触发的问题
+  const startLocalProgressTimer = (startIndex: number) => {
+    if (localTimerRef.current) window.clearInterval(localTimerRef.current);
+    
+    // 估算语速：每秒大约15个字符 (根据 aiSpeed 调整)
+    const charsPerSecond = 15 * aiSpeed;
+    const interval = 100; // 每100ms更新一次
+    const charsPerTick = charsPerSecond * (interval / 1000);
+    
+    let currentOffset = startIndex;
+    
+    localTimerRef.current = window.setInterval(() => {
+        if (!aiIsPlaying) {
+            window.clearInterval(localTimerRef.current!);
+            return;
+        }
+        currentOffset += charsPerTick;
+        if (currentOffset >= practiceText.length) {
+            setLocalProgress(100);
+            window.clearInterval(localTimerRef.current!);
+            return;
+        }
+        const prog = (currentOffset / practiceText.length) * 100;
+        setLocalProgress(prog);
+        localCharOffsetRef.current = Math.floor(currentOffset);
+    }, interval);
+  };
+
   const startLocalSpeech = (startIndex: number) => {
     window.speechSynthesis.cancel();
+    if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     
-    // Ensure small delay for mobile engine to reset
     setTimeout(() => {
         const remainingText = practiceText.substring(startIndex);
         if (!remainingText.trim()) {
@@ -155,6 +184,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
             utterance.voice = preferredVoice;
         }
 
+        // Boundary 事件作为校准（如果触发的话）
         utterance.onboundary = (event) => {
           if (event.name === 'word' && !isSeekingRef.current) {
             const absoluteCharIndex = startIndex + event.charIndex;
@@ -165,20 +195,20 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         };
         
         utterance.onend = () => {
-          if (!isSeekingRef.current) {
-            setAiIsPlaying(false);
-            setLocalProgress(100);
-            localCharOffsetRef.current = 0;
-          }
+          setAiIsPlaying(false);
+          setLocalProgress(100);
+          localCharOffsetRef.current = 0;
+          if (localTimerRef.current) window.clearInterval(localTimerRef.current);
         };
 
-        utterance.onerror = (e) => {
-            console.error("Local TTS Error:", e);
+        utterance.onerror = () => {
             setAiIsPlaying(false);
+            if (localTimerRef.current) window.clearInterval(localTimerRef.current);
         };
 
         setAiIsPlaying(true);
         window.speechSynthesis.speak(utterance);
+        startLocalProgressTimer(startIndex);
     }, 50);
   };
 
@@ -187,6 +217,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       if (aiIsPlaying) {
         window.speechSynthesis.cancel();
         setAiIsPlaying(false);
+        if (localTimerRef.current) window.clearInterval(localTimerRef.current);
       } else {
         const startFrom = localProgress >= 99 ? 0 : localCharOffsetRef.current;
         if (startFrom === 0) setLocalProgress(0);
@@ -219,7 +250,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
       const charIndex = Math.floor((val / 100) * practiceText.length);
       localCharOffsetRef.current = charIndex;
       
-      // Real-time update for local TTS requires re-calling speak
       if (aiIsPlaying) {
         startLocalSpeech(charIndex);
       }
@@ -253,6 +283,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
         if (voiceMode === 'local') window.speechSynthesis.cancel();
         else aiAudioRef.current?.pause();
         setAiIsPlaying(false);
+        if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     }
 
     if (isRecording) {

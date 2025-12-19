@@ -148,6 +148,11 @@ const App: React.FC = () => {
                      <div className="p-3 w-fit rounded-2xl bg-slate-800 text-slate-400">
                         {isGenerating === 'study' ? <Loader2 className="animate-spin" size={24} /> : <Book size={24} />}
                      </div>
+                     {dailyStats.itemsLearned > 0 && (
+                        <div className="absolute top-4 right-4 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-emerald-500/20">
+                           今日 +{dailyStats.itemsLearned}
+                        </div>
+                     )}
                      <div className="text-lg font-bold text-slate-100">新词学习</div>
                   </button>
                   <button onClick={initConversation} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">

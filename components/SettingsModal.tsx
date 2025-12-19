@@ -65,8 +65,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!show) return null;
 
-  // Calculate Stats
-  const learnedCount = vocabList.filter(v => v.masteryLevel > 1).length;
+  // Calculate Stats - Updated logic: count items with level >= 1
+  const learnedCount = vocabList.filter(v => v.masteryLevel >= 1).length;
   const learnedPercentage = totalRepoCount > 0 ? Math.round((learnedCount / totalRepoCount) * 100) : 0;
 
   // --- Export Logic ---
