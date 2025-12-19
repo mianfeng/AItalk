@@ -16,13 +16,14 @@ export interface StudyItem {
 }
 
 export interface PracticeExercise {
-  word: string;
-  sentence: string; // Original sentence for study
-  sentenceZh: string; // Chinese translation
-  quizQuestion: string; // Question with a blank (e.g., "I feel very ___ today.")
-  options: string[]; // 4 multiple choice options
+  word: string; // The primary word being tested in the blank
+  targetWords: string[]; // All three words included in the sentence
+  sentence: string; 
+  sentenceZh: string; 
+  quizQuestion: string; 
+  options: string[]; 
   correctAnswer: string;
-  explanation: string; // Why this word fits
+  explanation: string; 
 }
 
 export interface VocabularyItem extends StudyItem {
@@ -38,7 +39,6 @@ export interface DailyStats {
   completedSpeaking: boolean;
 }
 
-// ... existing types remain the same
 export interface SessionResult {
     item: StudyItem;
     remembered: boolean;
@@ -81,9 +81,6 @@ export interface ConversationSession {
   lastUpdated: number;
 }
 
-/**
- * Fix: Added missing AnalysisResult interface used for AI audio analysis feedback.
- */
 export interface AnalysisResult {
   userTranscript: string;
   betterVersion: string;
@@ -94,18 +91,12 @@ export interface AnalysisResult {
   replyText: string;
 }
 
-/**
- * Fix: Added missing DailyQuoteItem interface used for the daily quote feature.
- */
 export interface DailyQuoteItem {
   english: string;
   chinese: string;
   source: string;
 }
 
-/**
- * Fix: Added missing BackupData interface used for exporting and importing application data.
- */
 export interface BackupData {
   vocabList: VocabularyItem[];
   dailyStats: DailyStats;
