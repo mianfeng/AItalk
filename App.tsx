@@ -41,7 +41,7 @@ const App: React.FC = () => {
     }
     return { date: today, itemsLearned: 0, completedSpeaking: false };
   });
-  const [activeSession, setActiveSession] = useState<ConversationSession | null>(null);
+  const [activeSession, setValues] = useState<ConversationSession | null>(null);
   const [todaysItems, setTodaysItems] = useState<StudyItem[]>([]);
   const [practiceExercises, setPracticeExercises] = useState<PracticeExercise[]>([]);
   const [currentPracticeItems, setCurrentPracticeItems] = useState<StudyItem[]>([]);
@@ -121,7 +121,7 @@ const App: React.FC = () => {
       try {
           const poolWords = vocabList.slice(0, 3);
           const topic = poolWords.length > 0 ? await generateTopicFromVocab(poolWords) : await generateInitialTopic();
-          setActiveSession({ topic, targetWords: poolWords, history: [], lastUpdated: Date.now() });
+          setValues({ topic, targetWords: poolWords, history: [], lastUpdated: Date.now() });
           setMode('live');
       } catch (e) { alert("启动对话失败"); } finally { setIsGenerating(null); }
   };
@@ -144,25 +144,30 @@ const App: React.FC = () => {
            <div className="h-full overflow-y-auto p-4 max-w-2xl mx-auto flex flex-col">
               <h2 className="text-2xl font-bold text-white mb-6">今日计划</h2>
               <div className="grid grid-cols-2 gap-3 mb-8">
-                  <button onClick={startDailyPlan} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between overflow-hidden">
+                  <button onClick={startDailyPlan} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between overflow-hidden transition-transform active:scale-95">
                      <div className="p-3 w-fit rounded-2xl bg-slate-800 text-slate-400">
                         {isGenerating === 'study' ? <Loader2 className="animate-spin" size={24} /> : <Book size={24} />}
                      </div>
                      <div className="text-lg font-bold text-slate-100">新词学习</div>
                   </button>
-                  <button onClick={initConversation} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between">
+                  <button onClick={initConversation} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">
                      <div className="p-3 w-fit rounded-2xl bg-blue-500/10 text-blue-400">
                         {isGenerating === 'live' ? <Loader2 className="animate-spin" size={24} /> : <Mic size={24} />}
                      </div>
                      <div className="text-lg font-bold text-slate-100">情境对话</div>
                   </button>
-                  <button onClick={startTodayPractice} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between">
+                  <button onClick={startTodayPractice} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">
                      <div className="p-3 w-fit rounded-2xl bg-orange-500/10 text-orange-400">
                         {isGenerating === 'exercise' ? <Loader2 className="animate-spin" size={24} /> : <Shuffle size={24} />}
                      </div>
+                     {overdueItems.length > 0 && (
+                        <div className="absolute top-4 right-4 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-orange-500/30 animate-pulse">
+                           {overdueItems.length}
+                        </div>
+                     )}
                      <div className="text-lg font-bold text-slate-100">每日巩固</div>
                   </button>
-                  <button onClick={() => setMode('shadowing')} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+                  <button onClick={() => setMode('shadowing')} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 flex flex-col justify-between transition-transform active:scale-95">
                      <div className="p-3 w-fit rounded-2xl bg-purple-500/10 text-purple-400"><Repeat size={24} /></div>
                      <div className="text-lg font-bold text-slate-100">跟读挑战</div>
                   </button>
@@ -170,9 +175,9 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {mode === 'study' && <StudySession items={todaysItems} initialIndex={studyIndex} onProgress={setStudyIndex} onComplete={handleStudyComplete} />}
+        {mode === 'study' && <StudySession items={todaysItems} initialIndex={studyIndex} onProgress={setStudyIndex} onComplete={handleStudyComplete} onBack={() => setMode('dashboard')} />}
         {mode === 'exercise' && <PracticeSession exercises={practiceExercises} onBack={() => setMode('dashboard')} onComplete={handleExerciseComplete} />}
-        {mode === 'live' && activeSession && <ConversationMode session={activeSession} onUpdate={setActiveSession} onEndSession={() => setMode('dashboard')} onBack={() => setMode('dashboard')} onSaveVocab={() => {}} />}
+        {mode === 'live' && <ConversationMode session={activeSession!} onUpdate={setValues} onEndSession={() => setMode('dashboard')} onBack={() => setMode('dashboard')} onSaveVocab={() => {}} />}
         {mode === 'shadowing' && <ShadowingMode onBack={() => setMode('dashboard')} />}
 
         <SettingsModal show={showSettings} onClose={() => setShowSettings(false)} vocabList={vocabList} dailyStats={dailyStats} onRestore={d => setVocabList(d.vocabList)} totalRepoCount={getTotalLocalItemsCount()} />

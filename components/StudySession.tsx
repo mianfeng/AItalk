@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, BarChart, ArrowLeft } from 'lucide-react';
 import { evaluatePronunciation } from '../services/contentGen';
 import { getPreferredVoice } from '../services/audioUtils';
 
@@ -9,9 +10,10 @@ interface StudySessionProps {
   initialIndex: number; 
   onProgress: (index: number) => void;
   onComplete: (results: SessionResult[]) => void;
+  onBack: () => void;
 }
 
-export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex, onProgress, onComplete }) => {
+export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex, onProgress, onComplete, onBack }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -82,6 +84,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
           <div className="flex flex-col items-center justify-center h-full text-slate-400 p-6">
               <AlertCircle size={48} className="mb-4 text-slate-600" />
               <p>{!items || items.length === 0 ? '暂无学习内容，请返回重新生成。' : '学习完成！'}</p>
+              <button onClick={onBack} className="mt-6 px-6 py-2 bg-slate-800 rounded-full text-sm text-white">返回首页</button>
           </div>
       );
   }
@@ -230,13 +233,19 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            </div>
        )}
 
+       <div className="absolute top-3 left-4 z-10">
+           <button onClick={onBack} className="p-2 text-slate-500 hover:text-white transition-colors" title="返回首页">
+               <ArrowLeft size={22} />
+           </button>
+       </div>
+
        <div className="absolute top-3 right-4 z-10">
            <button onClick={() => setShowHelp(true)} className="p-2 text-slate-500 hover:text-white transition-colors">
                <HelpCircle size={20} />
            </button>
        </div>
 
-       <div className="w-full h-1 bg-slate-800 rounded-full mb-4 mt-2 overflow-hidden shrink-0">
+       <div className="w-full h-1 bg-slate-800 rounded-full mb-4 mt-12 overflow-hidden shrink-0">
           <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${progress}%` }} />
        </div>
 

@@ -44,12 +44,13 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
 
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
   For EACH group, provide:
-  1. "sentence": A natural sentence using all 3 words.
-  2. "sentenceZh": Chinese translation.
-  3. "quizQuestion": The sentence where the 3 words are replaced by "____".
-  4. "correctAnswers": The 3 words in correct order.
-  5. "options": The 3 correct words plus 3 distractors.
-  6. "explanation": Chinese analysis.
+  1. "targetWords": The 3 words in this group as an array.
+  2. "sentence": A natural sentence using all 3 words.
+  3. "sentenceZh": Chinese translation.
+  4. "quizQuestion": The sentence where the 3 words are replaced by "____".
+  5. "correctAnswers": The 3 words in correct order.
+  6. "options": The 3 correct words plus 3 distractors.
+  7. "explanation": Chinese analysis.
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
@@ -65,7 +66,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
-      temperature: 1.2
+      temperature: 1.3
     })
   });
 
@@ -93,7 +94,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
-        temperature: 1.1,
+        temperature: 1.25,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -126,7 +127,10 @@ export async function analyzeAudioResponse(audioBase64: string, currentTopic: st
   const response = await client.models.generateContent({
     model: CONVERSATION_MODEL_NAME,
     contents: [{ text: prompt }, { inlineData: { mimeType: "audio/webm", data: audioBase64 } }],
-    config: { responseMimeType: "application/json" }
+    config: { 
+      responseMimeType: "application/json",
+      temperature: 1.1
+    }
   });
   console.log("成功调用 Gemini API - 语音分析");
   return JSON.parse(response.text.trim());
@@ -150,7 +154,10 @@ export async function generateDailyQuote(): Promise<DailyQuoteItem> {
   const response = await client.models.generateContent({
     model: GENERAL_MODEL_NAME,
     contents: `Generate Inspiring Quote JSON`,
-    config: { responseMimeType: "application/json" }
+    config: { 
+      responseMimeType: "application/json",
+      temperature: 1.2
+    }
   });
   console.log("成功调用 Gemini API - 每日金句");
   return JSON.parse(response.text.trim());
@@ -184,7 +191,11 @@ export async function generateInitialTopic(): Promise<string> {
 export async function generateTopicFromVocab(items: StudyItem[]): Promise<string> {
   const client = getGeminiClient();
   if (!client) return generateInitialTopic();
-  const response = await client.models.generateContent({ model: GENERAL_MODEL_NAME, contents: `Short natural scenario title for words: ${items.map(i => i.text).join(",")}` });
+  const response = await client.models.generateContent({ 
+    model: GENERAL_MODEL_NAME, 
+    contents: `Short natural scenario title for words: ${items.map(i => i.text).join(",")}`,
+    config: { temperature: 1.2 }
+  });
   console.log("成功调用 Gemini API - 生成对话主题");
   return response.text?.trim() || "Daily Conversation";
 }
