@@ -4,12 +4,16 @@ import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise } from "../
 import { getLocalContent } from "./localRepository";
 
 // 1. Gemini 配置
-const GENERAL_MODEL_NAME = "gemini-3-flash-preview";
-const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts";
+// Switching to gemini-2.0-flash-exp which is reliable and widely available
+const GENERAL_MODEL_NAME = "gemini-2.0-flash-exp";
+// TTS model as per instructions
+const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
+// Audio dialog analysis
+const CONVERSATION_MODEL_NAME = "gemini-2.0-flash-exp"; 
+const PRACTICE_MODEL_NAME = "gemini-2.0-flash-exp";
 
 // 2. DeepSeek 配置 (尝试从环境变量获取)
-// 兼容不同环境下的变量读取
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || "sk-9dae334615f14782b2e43d1b5776006b"; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";
 
 function getGeminiClient() {
@@ -22,11 +26,20 @@ function getGeminiClient() {
  * 每日巩固 - 核心生成函数
  */
 export async function generatePracticeExercises(items: StudyItem[]): Promise<PracticeExercise[]> {
-  // 如果没有配置 DeepSeek Key，直接使用 Gemini 生成，不再打印警告
-  if (!DEEPSEEK_API_KEY || DEEPSEEK_API_KEY.length < 5) {
-    return generatePracticeExercisesWithGemini(items);
+  // 如果配置了 DeepSeek Key，尝试使用
+  if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.length > 5) {
+    try {
+        const result = await generatePracticeExercisesWithDeepSeek(items);
+        return result;
+    } catch (e) {
+        console.warn("DeepSeek generation failed, falling back to Gemini.", e);
+        // Fallback proceeds below
+    }
   }
+  return generatePracticeExercisesWithGemini(items);
+}
 
+async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promise<PracticeExercise[]> {
   const wordGroups: string[][] = [];
   for (let i = 0; i < items.length; i += 3) {
     if (i + 2 < items.length) {
@@ -39,55 +52,59 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
   const prompt = `You are an expert English Professor. Create ${wordGroups.length} vocabulary exercises.
   Input Groups: ${wordGroups.map((g, idx) => `Group ${idx + 1}: [${g.join(", ")}]`).join("\n")}
   
-  Respond with a JSON object containing an "exercises" array. Each:
+  For EACH group, write ONE sentence that naturally includes ALL 3 words.
+  Create a "quizQuestion" where these 3 words are replaced by "____".
+  Provide "correctAnswers" as an ordered array of the 3 words.
+  Provide "options" containing the 3 target words plus 3-4 distractor words (total 6-7 options).
+
+  Respond with a JSON object containing an "exercises" array. Format:
   {
-    "word": "first word",
-    "targetWords": ["word1", "word2", "word3"],
-    "sentence": "full sentence using all three words",
-    "sentenceZh": "中文翻译",
-    "quizQuestion": "sentence with ____",
-    "options": ["A", "B", "C", "D"],
-    "correctAnswer": "word",
-    "explanation": "中文解析"
+    "exercises": [
+      {
+        "targetWords": ["word1", "word2", "word3"],
+        "sentence": "The full sentence with word1, word2 and word3.",
+        "sentenceZh": "Chinese translation",
+        "quizQuestion": "The full sentence with ____, ____ and ____.",
+        "correctAnswers": ["word1", "word2", "word3"], 
+        "options": ["word1", "word2", "word3", "distractor1", "distractor2", "distractor3"],
+        "explanation": "Brief explanation in Chinese."
+      }
+    ]
   }`;
 
-  try {
-    const response = await fetch(DEEPSEEK_BASE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY.trim()}`
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: [
-          { role: "system", content: "You are a professional English tutor that only outputs JSON." },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.7
-      })
-    });
+  const response = await fetch(DEEPSEEK_BASE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${DEEPSEEK_API_KEY.trim()}`
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages: [
+        { role: "system", content: "You are a professional English tutor that only outputs JSON." },
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.7
+    })
+  });
 
-    // 健壮性修复：如果返回失败，读取 body 一次并抛出
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`DeepSeek API Error (${response.status}):`, errorText);
-      throw new Error(`API_STATUS_${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("EMPTY_CONTENT");
-
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : (parsed.exercises || []);
-    
-  } catch (e) {
-    // 捕获所有错误（包括网络、鉴权、解析），无缝降级到 Gemini
-    console.info("DeepSeek unavailable, using Gemini fallback.");
-    return generatePracticeExercisesWithGemini(items);
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`DeepSeek API Error (${response.status}):`, errorText);
+    throw new Error(`API_STATUS_${response.status}`);
   }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("EMPTY_CONTENT");
+
+  const parsed = JSON.parse(content);
+  
+  // 成功调用日志
+  console.log("成功调用 DeepSeek API");
+
+  return Array.isArray(parsed) ? parsed : (parsed.exercises || []);
 }
 
 /**
@@ -104,52 +121,72 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
     }
   }
 
-  const prompt = `Create ${wordGroups.length} English exercises in JSON array for these word groups: ${JSON.stringify(wordGroups)}. 
-  Each object needs: word, targetWords, sentence, sentenceZh, quizQuestion, options, correctAnswer, explanation.`;
+  if (wordGroups.length === 0) return [];
+
+  const prompt = `Create ${wordGroups.length} vocabulary exercises based on these word groups: ${JSON.stringify(wordGroups)}.
+  
+  For EACH group, create ONE exercise object where:
+  - You write a sentence containing ALL 3 target words.
+  - "quizQuestion": replace the 3 target words with "____".
+  - "correctAnswers": an array of the 3 target words in their correct order in the sentence.
+  - "options": an array of 6 words (the 3 target words + 3 distractors).
+  - "explanation": brief Chinese explanation.
+
+  RETURN A JSON ARRAY.`;
 
   try {
     const response = await client.models.generateContent({
-      model: GENERAL_MODEL_NAME,
+      model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
+        temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
           items: {
             type: Type.OBJECT,
             properties: {
-              word: { type: Type.STRING },
               targetWords: { type: Type.ARRAY, items: { type: Type.STRING } },
               sentence: { type: Type.STRING },
               sentenceZh: { type: Type.STRING },
               quizQuestion: { type: Type.STRING },
               options: { type: Type.ARRAY, items: { type: Type.STRING } },
-              correctAnswer: { type: Type.STRING },
+              correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
               explanation: { type: Type.STRING }
             },
-            required: ["word", "targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswer", "explanation"]
+            required: ["targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers", "explanation"]
           }
-        }
+        } 
       }
     });
 
-    return JSON.parse(response.text?.trim() || "[]");
+    const text = response.text?.trim() || "[]";
+    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '');
+    const parsed = JSON.parse(jsonStr);
+
+    // 成功调用日志
+    console.log("成功调用 Gemini API");
+
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
-    console.error("Critical Failure: Both AI providers failed.", e);
-    return []; 
+    console.error("Practice Generation Failed:", e);
+    return [];
   }
 }
 
 /**
- * 其他功能继续使用 Gemini 保持实时性
+ * 情景对话 - 分析
  */
 export async function analyzeAudioResponse(audioBase64: string, currentTopic: string, history: {user: string, ai: string}[]): Promise<AnalysisResult> {
   const client = getGeminiClient();
   if (!client) throw new Error("Key missing");
+  
   const historyText = history.map(h => `AI: ${h.ai}\nUser: ${h.user}`).join('\n');
-  const prompt = `Analyze English speaking: ${currentTopic}\nHistory: ${historyText}`;
+  const prompt = `Analyze English speaking based on topic: ${currentTopic}\nHistory: ${historyText}\n
+  Provide a JSON response with: userTranscript, betterVersion, analysis, pronunciation, chunks, score (0-100), replyText (conversational response).`;
+  
   const response = await client.models.generateContent({
-    model: GENERAL_MODEL_NAME,
+    model: CONVERSATION_MODEL_NAME,
     contents: [{ text: prompt }, { inlineData: { mimeType: "audio/webm", data: audioBase64 } }],
     config: {
       responseMimeType: "application/json",
@@ -224,6 +261,7 @@ export async function generateSpeech(text: string): Promise<string | null> {
     });
     return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
   } catch (error) {
+    console.warn("TTS generation failed, falling back to browser TTS", error);
     return null;
   }
 }

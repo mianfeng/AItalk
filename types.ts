@@ -16,13 +16,13 @@ export interface StudyItem {
 }
 
 export interface PracticeExercise {
-  word: string; // The primary word being tested in the blank
-  targetWords: string[]; // All three words included in the sentence
-  sentence: string; 
+  // Removed single 'word' and 'correctAnswer' in favor of array based approach
+  targetWords: string[]; // The 3 words being tested
+  sentence: string; // Full correct sentence
   sentenceZh: string; 
-  quizQuestion: string; 
-  options: string[]; 
-  correctAnswer: string;
+  quizQuestion: string; // Sentence with 3 blanks (____)
+  options: string[]; // Pool of options (correct words + distractors)
+  correctAnswers: string[]; // Ordered list of the 3 correct words
   explanation: string; 
 }
 

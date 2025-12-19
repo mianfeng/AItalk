@@ -48,6 +48,9 @@ const App: React.FC = () => {
   });
   const [todaysItems, setTodaysItems] = useState<StudyItem[]>([]);
   const [practiceExercises, setPracticeExercises] = useState<PracticeExercise[]>([]);
+  // Stores the original StudyItem objects for the current practice session to allow saving new words
+  const [currentPracticeItems, setCurrentPracticeItems] = useState<StudyItem[]>([]);
+  
   const [studyIndex, setStudyIndex] = useState(0); 
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -75,24 +78,49 @@ const App: React.FC = () => {
   };
 
   const startTodayPractice = async () => {
-    // Need 45 items for 15 questions (3 words each)
-    let pool = [...overdueItems];
-    if (pool.length < 45) {
-      const remainingNeeded = 45 - pool.length;
-      const otherItems = vocabList.filter(v => !pool.some(p => p.id === v.id)).sort(() => 0.5 - Math.random());
-      pool = [...pool, ...otherItems.slice(0, remainingNeeded)];
-    }
-
-    if (pool.length < 3) { alert("词库单词量不足，无法生成三词造句挑战。"); return; }
-
     setIsGenerating(true);
     try {
-      // Limit to 45 for 15 triplets
+      // 1. Start with overdue items
+      let pool: StudyItem[] = [...overdueItems];
+      
+      // 2. If not enough, fill with other learned items (up to 45 max for 15 questions)
+      if (pool.length < 45) {
+        const remainingNeeded = 45 - pool.length;
+        const otherLearned = vocabList
+          .filter(v => !pool.some(p => p.id === v.id))
+          .sort(() => 0.5 - Math.random());
+        pool = [...pool, ...otherLearned.slice(0, remainingNeeded)];
+      }
+
+      // 3. IF STILL LESS THAN 3 (Critical for new users), fetch NEW words from repo
+      if (pool.length < 3) {
+          // Fetch enough new words to make at least a small session (e.g. 9 words for 3 questions)
+          const needed = 9 - pool.length; 
+          const newItems = await generateDailyContent(needed, vocabList);
+          // Add them to the pool
+          pool = [...pool, ...newItems];
+      }
+
+      if (pool.length < 3) { 
+          alert("词库为空且无法获取新词，无法生成练习。"); 
+          return; 
+      }
+
+      // Save the pool so we can add new words to vocabList later if they were used
+      setCurrentPracticeItems(pool);
+
+      // Limit to multiple of 3 for triplets
       const selected = pool.sort(() => 0.5 - Math.random()).slice(0, Math.min(pool.length - (pool.length % 3), 45));
+      
       const exercises = await generatePracticeExercises(selected);
       setPracticeExercises(exercises);
       setMode('exercise');
-    } catch (e) { alert("生成巩固练习失败"); } finally { setIsGenerating(false); }
+    } catch (e) { 
+      console.error(e);
+      alert("生成巩固练习失败，请稍后重试。"); 
+    } finally { 
+      setIsGenerating(false); 
+    }
   };
 
   const handleStudyComplete = (results: SessionResult[]) => {
@@ -109,19 +137,57 @@ const App: React.FC = () => {
 
   const handleExerciseComplete = (correctWords: string[]) => {
     const now = Date.now();
-    // Tested words are all targetWords in the exercise set
-    const allTestedWords = practiceExercises.flatMap(ex => ex.targetWords);
-    const updatedVocabList = vocabList.map(v => {
-      if (allTestedWords.includes(v.text)) {
-        // If the specific word of the blank was answered correctly
-        const isTargetCorrect = correctWords.includes(v.text);
-        // We also consider words inside the sentence as "reviewed"
-        const newLevel = isTargetCorrect ? Math.min(5, v.masteryLevel + 1) : Math.max(1, v.masteryLevel - 1);
-        return { ...v, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel };
-      }
-      return v;
+    
+    // We need to handle both existing vocab updates AND adding new words if they were introduced during practice
+    let updatedVocabList = [...vocabList];
+    const newWordsAdded: VocabularyItem[] = [];
+
+    // Map of words actually used in the generated exercises (flattened)
+    const usedWords = new Set(practiceExercises.flatMap(ex => ex.targetWords));
+
+    // 1. Identify which items from the pool were actually used
+    const relevantItems = currentPracticeItems.filter(item => usedWords.has(item.text));
+
+    relevantItems.forEach(item => {
+        const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
+        
+        // Determine result
+        // If the user got the word correct (it's in correctWords), they leveled up.
+        // In the new 3-word fill-in-the-blank, if they get the whole sentence right, all 3 words are "correct".
+        // If they failed, none are correct.
+        
+        const answeredCorrectly = correctWords.includes(item.text);
+        
+        let newLevel = 0;
+        
+        if (existingIndex >= 0) {
+            // Existing Word
+            const currentLevel = updatedVocabList[existingIndex].masteryLevel;
+            newLevel = answeredCorrectly ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
+            
+            updatedVocabList[existingIndex] = {
+                ...updatedVocabList[existingIndex],
+                lastReviewed: now,
+                nextReviewAt: now + getNextReviewInterval(newLevel),
+                masteryLevel: newLevel
+            };
+        } else {
+            // New Word (from repo)
+            // If it appeared in practice, we add it to vocab list
+            newLevel = answeredCorrectly ? 1 : 0;
+            const newItem: VocabularyItem = {
+                ...item,
+                addedAt: now,
+                lastReviewed: now,
+                nextReviewAt: now + getNextReviewInterval(newLevel),
+                masteryLevel: newLevel,
+                saved: true
+            };
+            newWordsAdded.push(newItem);
+        }
     });
-    setVocabList(updatedVocabList);
+
+    setVocabList([...newWordsAdded, ...updatedVocabList]);
     setMode('dashboard');
   };
 
@@ -139,13 +205,13 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-[100dvh] bg-slate-950 text-slate-200 overflow-hidden font-sans">
       <header className="h-16 shrink-0 border-b border-slate-900 bg-slate-950 flex items-center justify-between px-4 z-10">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setMode('dashboard')}>
+        <div className="flex items-center gap-2 cursor-pointer active:scale-95 transition-transform" onClick={() => setMode('dashboard')}>
            <div className="bg-emerald-500/10 p-2 rounded-lg"><GraduationCap className="text-emerald-500" size={20} /></div>
            <h1 className="font-bold text-slate-100 text-lg">LinguaFlow</h1>
         </div>
         <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 rounded-full border border-slate-800"><Flame size={14} className="text-orange-500 fill-orange-500" /><span className="text-xs font-mono">{vocabList.length}</span></div>
-            <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white"><Settings size={20} /></button>
+            <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white active:rotate-45 transition-all"><Settings size={20} /></button>
         </div>
       </header>
 
@@ -157,20 +223,20 @@ const App: React.FC = () => {
                   <div className="text-slate-500 text-xs">已学: {dailyStats.itemsLearned}/15</div>
               </div>
               <div className="grid grid-cols-2 gap-3 mb-8">
-                  <button onClick={startDailyPlan} disabled={isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                  <button onClick={startDailyPlan} disabled={isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 hover:border-emerald-500/40 active:scale-95 active:bg-slate-800/80 transition-all flex flex-col justify-between">
                      <div className="p-3 w-fit rounded-2xl bg-slate-800 text-slate-400"><Book size={24} /></div>
                      <div className="text-lg font-bold text-slate-100">新词学习</div>
                   </button>
-                  <button onClick={initConversation} disabled={isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-gradient-to-br from-blue-900/20 to-slate-900 border border-blue-500/20 hover:border-blue-500/40 transition-all flex flex-col justify-between">
+                  <button onClick={initConversation} disabled={isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-gradient-to-br from-blue-900/20 to-slate-900 border border-blue-500/20 hover:border-blue-500/40 active:scale-95 active:bg-blue-900/30 transition-all flex flex-col justify-between">
                      <div className="p-3 w-fit rounded-2xl bg-blue-500/10 text-blue-400"><Mic size={24} /></div>
                      <div className="text-lg font-bold text-slate-100">情境对话</div>
                   </button>
-                  <button onClick={startTodayPractice} disabled={isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 hover:border-orange-500/40 transition-all relative flex flex-col justify-between">
+                  <button onClick={startTodayPractice} disabled={isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 hover:border-orange-500/40 active:scale-95 active:bg-slate-800/80 transition-all relative flex flex-col justify-between">
                      <div className="p-3 w-fit rounded-2xl bg-orange-500/10 text-orange-400"><Shuffle size={24} /></div>
                      {overdueItems.length > 0 && <div className="absolute top-4 right-4 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full animate-pulse">{overdueItems.length}</div>}
                      <div className="text-lg font-bold text-slate-100">每日巩固</div>
                   </button>
-                  <button onClick={() => setMode('shadowing')} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 hover:border-purple-500/40 transition-all flex flex-col justify-between">
+                  <button onClick={() => setMode('shadowing')} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 hover:border-purple-500/40 active:scale-95 active:bg-slate-800/80 transition-all flex flex-col justify-between">
                      <div className="p-3 w-fit rounded-2xl bg-purple-500/10 text-purple-400"><Repeat size={24} /></div>
                      <div className="text-lg font-bold text-slate-100">跟读挑战</div>
                   </button>
