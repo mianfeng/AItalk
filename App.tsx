@@ -12,6 +12,14 @@ import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2 } f
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'shadowing' | 'exercise';
 
+// 提取清洗逻辑到组件外部
+const fastClean = (text: string) => {
+    if (!text) return "";
+    return text.trim().toLowerCase()
+        .replace(/\s+[A-Z]\s+.*$/i, '') 
+        .replace(/\s+[a-z]$/, '');
+};
+
 const getNextReviewInterval = (level: number): number => {
   const ONE_DAY = 24 * 60 * 60 * 1000;
   switch (level) {
@@ -106,8 +114,9 @@ const App: React.FC = () => {
         const newList = [...prev];
         results.forEach(({ item, remembered }) => {
             const newLevel = remembered ? 1 : 0;
-            if (!newList.some(v => v.text.trim().toLowerCase() === item.text.trim().toLowerCase())) {
-               newList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
+            const cleanedText = fastClean(item.text);
+            if (!newList.some(v => fastClean(v.text) === cleanedText)) {
+               newList.unshift({ ...item, text: cleanedText, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
             }
         });
         return newList;
@@ -120,22 +129,30 @@ const App: React.FC = () => {
     const now = Date.now();
     
     setVocabList(prevList => {
-        const newList = [...prevList];
-        // 将传入的结果转化为 Map 方便快速查找，Key 全部 trim 且小写化
-        const resultMap = new Map(results.map(r => [r.word.trim().toLowerCase(), r.isCorrect]));
+        // 先对所有传入的 word 进行清洗
+        const resultMap = new Map(results.map(r => [fastClean(r.word), r.isCorrect]));
         
-        // 1. 更新词库中已有的词
-        const updatedList = newList.map(item => {
-            const itemTextClean = item.text.trim().toLowerCase();
-            if (resultMap.has(itemTextClean)) {
-                const isCorrect = resultMap.get(itemTextClean);
+        const updatedList = prevList.map(item => {
+            const itemClean = fastClean(item.text);
+            let isMatched = false;
+            let isCorrect = false;
+
+            // Fuzzy Match: 如果 resultMap 里的键包含 itemClean，或者 itemClean 包含 resultMap 里的键
+            for (const [resWord, correct] of resultMap.entries()) {
+                if (resWord === itemClean || (itemClean.length > 3 && resWord.includes(itemClean)) || (resWord.length > 3 && itemClean.includes(resWord))) {
+                    isMatched = true;
+                    isCorrect = correct;
+                    break;
+                }
+            }
+
+            if (isMatched) {
                 const currentLevel = item.masteryLevel || 0;
-                // 正确 Lv+1，错误 Lv-1
                 const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
                 
-                // 彻底刷新复习时间，将其从红点中移除
                 return {
                     ...item,
+                    text: itemClean, // 顺便修复之前存下的脏数据
                     lastReviewed: now,
                     nextReviewAt: now + getNextReviewInterval(newLevel),
                     masteryLevel: newLevel
@@ -144,15 +161,16 @@ const App: React.FC = () => {
             return item;
         });
 
-        // 2. 如果练习中有新加入的词（陪跑词），也顺便存入词库
+        // 处理新加入的词
         results.forEach(({ word, isCorrect }) => {
-            const wordClean = word.trim().toLowerCase();
-            if (!updatedList.some(v => v.text.trim().toLowerCase() === wordClean)) {
-                const originalItem = currentPracticeItems.find(i => i.text.trim().toLowerCase() === wordClean);
+            const wordClean = fastClean(word);
+            if (!updatedList.some(v => fastClean(v.text) === wordClean)) {
+                const originalItem = currentPracticeItems.find(i => fastClean(i.text) === wordClean);
                 if (originalItem) {
                     const level = isCorrect ? 1 : 0;
                     updatedList.unshift({
                         ...originalItem,
+                        text: wordClean,
                         addedAt: now,
                         lastReviewed: now,
                         nextReviewAt: now + getNextReviewInterval(level),

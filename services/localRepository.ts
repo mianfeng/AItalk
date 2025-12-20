@@ -1,19 +1,32 @@
+
 import { StudyItem, ItemType } from "../types";
 import { RAW_SLANG_DATA } from "./data/slangData";
 import { RAW_ACADEMIC_DATA } from "./data/academicData";
 
 /**
- * Parsers
+ * 强大的文本清洗工具：剔除单词末尾可能的字母后缀或重复标记
+ * 例如："K-drama k" -> "K-drama"
+ *      "scale a business S scale" -> "scale a business"
  */
+function cleanText(text: string): string {
+  if (!text) return "";
+  // 匹配模式：空格 + 单个大写/小写字母 (+ 可能重复的部分)
+  // 或者 匹配一些常见的噪音模式
+  return text
+    .replace(/\s+[A-Z]\s+.*$/i, '') // 匹配 " S scale" 这种模式
+    .replace(/\s+[a-z]$/, '')       // 匹配 " k" 这种模式
+    .trim();
+}
 
 function parseSlangItem(item: any): StudyItem {
+  const cleanedText = cleanText(item.text);
   return {
     id: `local-slang-${Math.random().toString(36).substr(2, 9)}`,
-    text: item.text,
+    text: cleanedText,
     translation: item.translation,
     definition: item.definition || item.translation,
-    example: "No example provided.", // Slang dataset might lack examples
-    type: item.text.includes(' ') ? 'idiom' : 'word', // Simple heuristic, can be refined
+    example: item.example || "No example provided.",
+    type: cleanedText.includes(' ') ? 'idiom' : 'word',
     pronunciation: item.pronunciation,
     extra_info: "来源: 生活俚语库",
     saved: false,
@@ -22,32 +35,26 @@ function parseSlangItem(item: any): StudyItem {
 }
 
 function parseAcademicItem(item: any): StudyItem {
-  // Parsing logic for: "__emperor__ [ˈempərə(r)] n. 皇帝；君主"
   let pronunciation = "";
   let translation = item.definition;
-  let definition = item.definition;
 
-  // 1. Extract IPA found in []
   const ipaMatch = item.definition.match(/\[(.*?)\]/);
   if (ipaMatch) {
     pronunciation = `/${ipaMatch[1]}/`;
   }
 
-  // 2. Clean translation: 
-  // Remove __word__, remove [ipa], remove part of speech (n. v. adj. etc at the start)
   translation = translation
-    .replace(/__.*?__/g, '') // Remove __word__
-    .replace(/\[.*?\]/g, '') // Remove [ipa]
+    .replace(/__.*?__/g, '')
+    .replace(/\[.*?\]/g, '')
     .trim();
   
-  // Try to remove part of speech (e.g., "n. ", "vt. ", "a. ") if present at start
   translation = translation.replace(/^[a-z]+\.\s*/, '');
 
   return {
     id: `local-acad-${Math.random().toString(36).substr(2, 9)}`,
     text: item.text,
     translation: translation,
-    definition: "", // Academic def is often just translation in the raw data, clearing to avoid duplication in UI
+    definition: "",
     example: item.example || "No example provided.",
     type: 'word',
     pronunciation: pronunciation,
@@ -57,28 +64,18 @@ function parseAcademicItem(item: any): StudyItem {
   };
 }
 
-// Unified Repository
 const ALL_LOCAL_ITEMS: StudyItem[] = [
   ...RAW_SLANG_DATA.map(parseSlangItem),
   ...RAW_ACADEMIC_DATA.map(parseAcademicItem)
 ];
 
-/**
- * Get total number of items available in the local repository.
- */
 export function getTotalLocalItemsCount(): number {
   return ALL_LOCAL_ITEMS.length;
 }
 
-/**
- * Get random items from local repository, excluding already learned ones.
- * Supports requesting specific count by type.
- */
 export function getLocalContent(count: number, existingTexts: Set<string>, typePreference?: 'word' | 'sentence'): StudyItem[] {
-  // 1. Filter out duplicates (words user has already saved)
   let available = ALL_LOCAL_ITEMS.filter(item => !existingTexts.has(item.text));
 
-  // 2. Filter by type if requested
   if (typePreference) {
       if (typePreference === 'word') {
           available = available.filter(item => item.type === 'word');
@@ -87,9 +84,6 @@ export function getLocalContent(count: number, existingTexts: Set<string>, typeP
       }
   }
 
-  // 3. Shuffle
   const shuffled = available.sort(() => 0.5 - Math.random());
-
-  // 4. Slice
   return shuffled.slice(0, count);
 }

@@ -34,10 +34,9 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
 
 async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promise<PracticeExercise[]> {
   const wordGroups: string[][] = [];
+  // 修复：不再强制 3 个一组才推送，最后一组即便只有 1-2 个也推送
   for (let i = 0; i < items.length; i += 3) {
-    if (i + 2 < items.length) {
-      wordGroups.push(items.slice(i, i + 3).map(it => it.text));
-    }
+    wordGroups.push(items.slice(i, i + 3).map(it => it.text));
   }
 
   if (wordGroups.length === 0) return [];
@@ -50,12 +49,12 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   3. DO NOT explain grammar, tenses, or word form changes (e.g., don't say "advocate becomes advocates because of the subject"). Keep it concise.
   
   For EACH group, provide:
-  1. "targetWords": The 3 original words.
+  1. "targetWords": The original words provided in the group.
   2. "sentence": A natural sentence using those words.
   3. "sentenceZh": Chinese translation.
-  4. "quizQuestion": The sentence where the 3 words are replaced by "____".
-  5. "correctAnswers": The exact 3 strings for the blanks.
-  6. "options": The 3 correct strings plus 3 distractors.
+  4. "quizQuestion": The sentence where the words are replaced by "____".
+  5. "correctAnswers": The exact strings for the blanks.
+  6. "options": The correct strings plus 3-4 distractors.
   7. "explanation": Concise Chinese meaning analysis only.
   Output JSON format: {"exercises": [...]}`;
 
@@ -88,9 +87,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
 
   const wordGroups: string[][] = [];
   for (let i = 0; i < items.length; i += 3) {
-    if (i + 2 < items.length) {
-      wordGroups.push(items.slice(i, i + 3).map(it => it.text));
-    }
+    wordGroups.push(items.slice(i, i + 3).map(it => it.text));
   }
 
   const prompt = `Create exercises for: ${JSON.stringify(wordGroups)}. 
