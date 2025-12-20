@@ -71,19 +71,13 @@ const App: React.FC = () => {
 
     setIsGenerating('exercise');
     try {
-      // 1. 核心修复：必须包含所有到期词
       let selected: StudyItem[] = [...overdueItems];
-      
-      // 2. 如果总数不是3的倍数，寻找“陪跑词”补齐
       const remainder = selected.length % 3;
       if (remainder !== 0) {
           const needed = 3 - remainder;
-          // 优先从已学会但没到期的词里找
           const learnedNotOverdue = vocabList.filter(v => v.nextReviewAt > Date.now());
           const fillers = learnedNotOverdue.sort(() => 0.5 - Math.random()).slice(0, needed);
-          
           if (fillers.length < needed) {
-              // 如果不够，再抓点新词补齐
               const newItems = await generateDailyContent(needed - fillers.length, vocabList);
               selected = [...selected, ...fillers, ...newItems];
           } else {
@@ -91,9 +85,7 @@ const App: React.FC = () => {
           }
       }
       
-      // 限制单词上限防止 AI 崩溃 (最多 15 组，即 45 词)
       const finalSelection = selected.slice(0, 45);
-      
       setCurrentPracticeItems(finalSelection);
       const exercises = await generatePracticeExercises(finalSelection);
       
@@ -114,7 +106,7 @@ const App: React.FC = () => {
         const newList = [...prev];
         results.forEach(({ item, remembered }) => {
             const newLevel = remembered ? 1 : 0;
-            if (!newList.some(v => v.text.toLowerCase() === item.text.toLowerCase())) {
+            if (!newList.some(v => v.text.trim().toLowerCase() === item.text.trim().toLowerCase())) {
                newList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
             }
         });
@@ -124,23 +116,24 @@ const App: React.FC = () => {
     setMode('dashboard'); 
   };
 
-  const handleExerciseComplete = (correctWordsBaseForms: string[]) => {
+  const handleExerciseComplete = (results: {word: string, isCorrect: boolean}[]) => {
     const now = Date.now();
-    const correctSet = new Set(correctWordsBaseForms.map(w => w.toLowerCase()));
     
     setVocabList(prevList => {
         const newList = [...prevList];
-        const allTargetWords = practiceExercises.flatMap(ex => ex.targetWords);
-        const targetSet = new Set(allTargetWords.map(w => w.toLowerCase()));
+        // 将传入的结果转化为 Map 方便快速查找，Key 全部 trim 且小写化
+        const resultMap = new Map(results.map(r => [r.word.trim().toLowerCase(), r.isCorrect]));
         
-        // 更新词库中已存在的词
+        // 1. 更新词库中已有的词
         const updatedList = newList.map(item => {
-            const itemTextLower = item.text.toLowerCase();
-            if (targetSet.has(itemTextLower)) {
-                const isCorrect = correctSet.has(itemTextLower);
+            const itemTextClean = item.text.trim().toLowerCase();
+            if (resultMap.has(itemTextClean)) {
+                const isCorrect = resultMap.get(itemTextClean);
                 const currentLevel = item.masteryLevel || 0;
+                // 正确 Lv+1，错误 Lv-1
                 const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
                 
+                // 彻底刷新复习时间，将其从红点中移除
                 return {
                     ...item,
                     lastReviewed: now,
@@ -151,13 +144,12 @@ const App: React.FC = () => {
             return item;
         });
 
-        // 处理那些原本不在词库中（陪跑的新词）
-        allTargetWords.forEach(wordText => {
-            const wordLower = wordText.toLowerCase();
-            if (!updatedList.some(v => v.text.toLowerCase() === wordLower)) {
-                const originalItem = currentPracticeItems.find(i => i.text.toLowerCase() === wordLower);
+        // 2. 如果练习中有新加入的词（陪跑词），也顺便存入词库
+        results.forEach(({ word, isCorrect }) => {
+            const wordClean = word.trim().toLowerCase();
+            if (!updatedList.some(v => v.text.trim().toLowerCase() === wordClean)) {
+                const originalItem = currentPracticeItems.find(i => i.text.trim().toLowerCase() === wordClean);
                 if (originalItem) {
-                    const isCorrect = correctSet.has(wordLower);
                     const level = isCorrect ? 1 : 0;
                     updatedList.unshift({
                         ...originalItem,

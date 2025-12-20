@@ -6,7 +6,7 @@ import { getPreferredVoice } from '../services/audioUtils';
 
 interface PracticeSessionProps {
   exercises: PracticeExercise[];
-  onComplete: (correctWords: string[]) => void;
+  onComplete: (results: {word: string, isCorrect: boolean}[]) => void;
   onBack: () => void;
 }
 
@@ -18,17 +18,19 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [showExplanation, setShowExplanation] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
-  const [correctResults, setCorrectResults] = useState<string[]>([]);
+  
+  // 记录所有练习过的单词及其最终正误
+  const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
+  
   const [isFinished, setIsFinished] = useState(false);
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
 
-  // Load current vocab to check mastery levels
   const vocabMap = useMemo(() => {
     const saved = localStorage.getItem('lingua_vocab');
     if (!saved) return new Map<string, number>();
     const list: VocabularyItem[] = JSON.parse(saved);
     return new Map(list.map(v => [v.text.toLowerCase(), v.masteryLevel]));
-  }, [isFinished, showExplanation]); // Update map when showing results
+  }, [isFinished, showExplanation]);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -78,9 +80,15 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     const correct = userAnswers.every((ans, i) => normalize(ans) === normalize(currentExercise.correctAnswers[i]));
     setIsCorrect(correct);
     setShowExplanation(true);
-    if (correct) {
-      setCorrectResults(prev => Array.from(new Set([...prev, ...(currentExercise.targetWords || [])])));
-    }
+    
+    // 记录结果：本题包含的 3 个 targetWords 共享这道题的对错结果
+    setSessionResults(prev => {
+        const next = new Map(prev);
+        currentExercise.targetWords.forEach(word => {
+            next.set(word, correct);
+        });
+        return next;
+    });
   };
 
   const handleNext = () => {
@@ -124,6 +132,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   if (isFinished) {
+    const finalResultsArray = Array.from(sessionResults.entries()).map(([word, isCorrect]) => ({ word, isCorrect }));
+    const correctWordsOnly = finalResultsArray.filter(r => r.isCorrect).map(r => r.word);
+
     return (
       <div className="h-full flex flex-col bg-slate-950 p-6 overflow-y-auto custom-scrollbar">
         <div className="max-w-xl mx-auto w-full flex flex-col items-center">
@@ -131,27 +142,28 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                 <Trophy size={40} className="text-emerald-500" />
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">计划达成!</h2>
-            <p className="text-slate-400 mb-8 text-center text-sm">巩固了以下 {correctResults.length} 个内容：</p>
+            <p className="text-slate-400 mb-8 text-center text-sm">本次练习结果总结：</p>
             <div className="w-full grid grid-cols-1 gap-3 mb-10">
-                {correctResults.map((word, idx) => {
-                    const level = vocabMap.get(word.toLowerCase()) || 0;
+                {finalResultsArray.map((res, idx) => {
+                    const level = vocabMap.get(res.word.toLowerCase()) || 0;
                     return (
-                        <div key={idx} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between group hover:border-emerald-500/30 transition-colors">
+                        <div key={idx} className={`bg-slate-900 border ${res.isCorrect ? 'border-slate-800' : 'border-red-900/30'} p-4 rounded-2xl flex items-center justify-between group transition-colors`}>
                             <div className="flex items-center gap-3">
                                 <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-800 rounded-md border border-slate-700">
-                                    <BarChart size={10} className="text-blue-400" />
+                                    <BarChart size={10} className={res.isCorrect ? "text-blue-400" : "text-red-400"} />
                                     <span className="text-[10px] text-slate-400 font-bold uppercase">Lv {level}</span>
                                 </div>
-                                <span className="text-lg font-semibold text-slate-100">{word}</span>
+                                <span className={`text-lg font-semibold ${res.isCorrect ? 'text-slate-100' : 'text-slate-400'}`}>{res.word}</span>
+                                {!res.isCorrect && <span className="text-[10px] text-red-500 bg-red-500/10 px-1.5 rounded">需巩固</span>}
                             </div>
-                            <button onClick={() => playTTS(word)} className={`p-2.5 rounded-full transition-all ${playingWord === word ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
+                            <button onClick={() => playTTS(res.word)} className={`p-2.5 rounded-full transition-all ${playingWord === res.word ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
                                 <Volume2 size={20} />
                             </button>
                         </div>
                     );
                 })}
             </div>
-            <button onClick={() => onComplete(correctResults)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-900/20 mb-10 active:scale-95">
+            <button onClick={() => onComplete(finalResultsArray)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-900/20 mb-10 active:scale-95">
                 完成回顾
             </button>
         </div>
