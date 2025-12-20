@@ -44,19 +44,19 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
 
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
   
-  RULES FOR INFLECTION:
-  1. If a target word like "be" becomes "is/are/was" in your sentence, the "correctAnswers" and "options" MUST use the inflected form (e.g., "is") to match the sentence.
-  2. If "one's" is used, replace it with a natural possessive like "his", "her", or "my" in the sentence, correctAnswers, and options.
-  3. The "targetWords" array should still keep the original base forms for reference.
+  RULES FOR CONTENT:
+  1. If a target word like "be" becomes "is/are" or "one's" becomes "his", use the specific form in "sentence" and "correctAnswers".
+  2. For the "explanation", ONLY explain the meaning and usage of the 3 target words in Chinese. 
+  3. DO NOT explain grammar, tenses, or word form changes (e.g., don't say "advocate becomes advocates because of the subject"). Keep it concise.
   
   For EACH group, provide:
   1. "targetWords": The 3 original words.
-  2. "sentence": A natural sentence using those words (inflected if needed).
+  2. "sentence": A natural sentence using those words.
   3. "sentenceZh": Chinese translation.
-  4. "quizQuestion": The sentence where the 3 inflected words are replaced by "____".
-  5. "correctAnswers": The exact 3 strings that fill the blanks in correct order.
+  4. "quizQuestion": The sentence where the 3 words are replaced by "____".
+  5. "correctAnswers": The exact 3 strings for the blanks.
   6. "options": The 3 correct strings plus 3 distractors.
-  7. "explanation": Chinese analysis explaining the usage and any word form changes.
+  7. "explanation": Concise Chinese meaning analysis only.
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
@@ -72,11 +72,11 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
-      temperature: 1.3
+      temperature: 1.0
     })
   });
 
-  if (!response.ok) throw new Error(`DeepSeek API Error: ${response.status}`);
+  if (!response.ok) throw new Error(`DeepSeek Error: ${response.status}`);
   const data = await response.json();
   const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
   return parsed.exercises || [];
@@ -94,15 +94,15 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   }
 
   const prompt = `Create exercises for: ${JSON.stringify(wordGroups)}. 
-  Note: If a word needs inflection (e.g. 'be' -> 'is', 'one's' -> 'his'), use the specific form in 'sentence', 'correctAnswers', and 'options' so they match the blanks perfectly. 
-  Return JSON array of objects with targetWords(base forms), sentence, sentenceZh, quizQuestion(with 3 ____), options(6 words, matching the blanks), correctAnswers(ordered, matching the blanks), explanation(Chinese, mention form changes).`;
+  Explanation should ONLY cover word meanings in Chinese. DO NOT mention tenses or grammar rules. 
+  Return JSON array with targetWords, sentence, sentenceZh, quizQuestion, options(6), correctAnswers(3), explanation.`;
 
   try {
     const response = await client.models.generateContent({
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
-        temperature: 1.25,
+        temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -123,7 +123,6 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
     });
     return JSON.parse(response.text || "[]");
   } catch (e) {
-    console.error("Gemini 练习生成失败", e);
     return [];
   }
 }
@@ -137,10 +136,9 @@ export async function analyzeAudioResponse(audioBase64: string, currentTopic: st
     contents: [{ text: prompt }, { inlineData: { mimeType: "audio/webm", data: audioBase64 } }],
     config: { 
       responseMimeType: "application/json",
-      temperature: 1.1
+      temperature: 1.0
     }
   });
-  console.log("成功调用 Gemini API - 语音分析");
   return JSON.parse(response.text.trim());
 }
 
@@ -152,7 +150,6 @@ export async function evaluatePronunciation(audioBase64: string, targetText: str
     contents: [{ text: `Rate pronunciation of "${targetText}"` }, { inlineData: { mimeType: "audio/webm", data: audioBase64 } }],
     config: { responseMimeType: "application/json" }
   });
-  console.log("成功调用 Gemini API - 发音评估");
   return JSON.parse(response.text.trim());
 }
 
@@ -164,10 +161,9 @@ export async function generateDailyQuote(): Promise<DailyQuoteItem> {
     contents: `Generate Inspiring Quote JSON`,
     config: { 
       responseMimeType: "application/json",
-      temperature: 1.2
+      temperature: 1.0
     }
   });
-  console.log("成功调用 Gemini API - 每日金句");
   return JSON.parse(response.text.trim());
 }
 
@@ -180,7 +176,6 @@ export async function generateSpeech(text: string): Promise<string | null> {
       contents: { parts: [{ text }] },
       config: { responseModalities: [Modality.AUDIO] },
     });
-    console.log("成功调用 Gemini API - TTS语音合成");
     return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
   } catch (error) {
     return null;
@@ -202,8 +197,7 @@ export async function generateTopicFromVocab(items: StudyItem[]): Promise<string
   const response = await client.models.generateContent({ 
     model: GENERAL_MODEL_NAME, 
     contents: `Short natural scenario title for words: ${items.map(i => i.text).join(",")}`,
-    config: { temperature: 1.2 }
+    config: { temperature: 1.0 }
   });
-  console.log("成功调用 Gemini API - 生成对话主题");
   return response.text?.trim() || "Daily Conversation";
 }

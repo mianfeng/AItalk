@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
-import { PracticeExercise } from '../types';
-import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { PracticeExercise, VocabularyItem } from '../types';
+import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart } from 'lucide-react';
 import { getPreferredVoice } from '../services/audioUtils';
 
 interface PracticeSessionProps {
@@ -21,6 +21,14 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [correctResults, setCorrectResults] = useState<string[]>([]);
   const [isFinished, setIsFinished] = useState(false);
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
+
+  // Load current vocab to check mastery levels
+  const vocabMap = useMemo(() => {
+    const saved = localStorage.getItem('lingua_vocab');
+    if (!saved) return new Map<string, number>();
+    const list: VocabularyItem[] = JSON.parse(saved);
+    return new Map(list.map(v => [v.text.toLowerCase(), v.masteryLevel]));
+  }, [isFinished, showExplanation]); // Update map when showing results
 
   useEffect(() => {
     const loadVoices = () => {
@@ -44,23 +52,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     }
   }, [currentExercise]);
 
-  if (!exercises || exercises.length === 0) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center bg-slate-950 p-6 text-slate-400">
-        <p>暂无练习内容，请返回首页重新生成。</p>
-        <button onClick={onBack} className="mt-4 px-6 py-2 bg-slate-800 rounded-full text-white">返回</button>
-      </div>
-    );
-  }
-
-  // Helper: Normalize strings for robust comparison
   const normalize = (str: string | null) => {
     if (!str) return "";
-    return str
-      .toLowerCase()
-      .trim()
-      .replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'") // 统一各种弯引号为标准单引号
-      .replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"'); // 统一双引号
+    return str.toLowerCase().trim().replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'").replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"');
   };
 
   const handleOptionClick = (word: string) => {
@@ -81,19 +75,11 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const checkAnswer = () => {
-    // Use normalized strings for comparison
-    const correct = userAnswers.every((ans, i) => 
-        normalize(ans) === normalize(currentExercise.correctAnswers[i])
-    );
-    
+    const correct = userAnswers.every((ans, i) => normalize(ans) === normalize(currentExercise.correctAnswers[i]));
     setIsCorrect(correct);
     setShowExplanation(true);
-    
     if (correct) {
-      setCorrectResults(prev => {
-        const newSet = new Set([...prev, ...(currentExercise.correctAnswers || [])]);
-        return Array.from(newSet);
-      });
+      setCorrectResults(prev => Array.from(new Set([...prev, ...(currentExercise.targetWords || [])])));
     }
   };
 
@@ -107,28 +93,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   const playTTS = (text: string, isFullSentence = false) => {
     if (!text) return;
-    if (isFullSentence) {
-      if (isPlaying) return;
-      setIsPlaying(true);
-    } else {
-      setPlayingWord(text);
-    }
-
+    if (isFullSentence) { if (isPlaying) return; setIsPlaying(true); } else { setPlayingWord(text); }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
-    
-    utterance.onend = () => {
-      if (isFullSentence) setIsPlaying(false);
-      else setPlayingWord(null);
-    };
-    utterance.onerror = () => {
-      if (isFullSentence) setIsPlaying(false);
-      else setPlayingWord(null);
-    };
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.onend = () => { if (isFullSentence) setIsPlaying(false); else setPlayingWord(null); };
+    utterance.onerror = () => { if (isFullSentence) setIsPlaying(false); else setPlayingWord(null); };
     window.speechSynthesis.speak(utterance);
   };
 
@@ -137,24 +108,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     const parts = currentExercise.quizQuestion.split('____');
     const elements = [];
     const correctAnsCount = (currentExercise.correctAnswers || []).length;
-
     for (let i = 0; i < parts.length; i++) {
         elements.push(<span key={`text-${i}`} className="text-slate-300 font-medium text-lg leading-loose">{parts[i]}</span>);
         if (i < correctAnsCount) { 
             const ans = userAnswers[i];
-            // Visualization should also use normalized comparison
             const isWordCorrect = isCorrect !== null && normalize(ans) === normalize(currentExercise.correctAnswers[i]);
-            
             elements.push(
-                <button
-                    key={`slot-${i}`}
-                    onClick={() => handleSlotClick(i)}
-                    className={`inline-flex items-center justify-center min-w-[90px] h-10 px-3 mx-1 align-middle rounded-xl border-b-4 transition-all ${
-                        ans 
-                        ? (isCorrect === null ? 'bg-blue-600 border-blue-800' : (isWordCorrect ? 'bg-emerald-600 border-emerald-800' : 'bg-red-500 border-red-800'))
-                        : 'bg-slate-800 border-slate-700 animate-pulse'
-                    } text-white font-bold`}
-                >
+                <button key={`slot-${i}`} onClick={() => handleSlotClick(i)} className={`inline-flex items-center justify-center min-w-[90px] h-10 px-3 mx-1 align-middle rounded-xl border-b-4 transition-all ${ans ? (isCorrect === null ? 'bg-blue-600 border-blue-800' : (isWordCorrect ? 'bg-emerald-600 border-emerald-800' : 'bg-red-500 border-red-800')) : 'bg-slate-800 border-slate-700 animate-pulse'} text-white font-bold`}>
                     {ans || "____"}
                 </button>
             );
@@ -171,26 +131,27 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                 <Trophy size={40} className="text-emerald-500" />
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">计划达成!</h2>
-            <p className="text-slate-400 mb-8 text-center text-sm">本次练习，你巩固了以下 {correctResults.length} 个单词：</p>
-            
+            <p className="text-slate-400 mb-8 text-center text-sm">巩固了以下 {correctResults.length} 个内容：</p>
             <div className="w-full grid grid-cols-1 gap-3 mb-10">
-                {correctResults.map((word, idx) => (
-                    <div key={idx} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between group hover:border-emerald-500/30 transition-colors">
-                        <span className="text-lg font-semibold text-slate-100">{word}</span>
-                        <button 
-                            onClick={() => playTTS(word)}
-                            className={`p-2.5 rounded-full transition-all ${playingWord === word ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}
-                        >
-                            <Volume2 size={20} />
-                        </button>
-                    </div>
-                ))}
+                {correctResults.map((word, idx) => {
+                    const level = vocabMap.get(word.toLowerCase()) || 0;
+                    return (
+                        <div key={idx} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between group hover:border-emerald-500/30 transition-colors">
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-800 rounded-md border border-slate-700">
+                                    <BarChart size={10} className="text-blue-400" />
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase">Lv {level}</span>
+                                </div>
+                                <span className="text-lg font-semibold text-slate-100">{word}</span>
+                            </div>
+                            <button onClick={() => playTTS(word)} className={`p-2.5 rounded-full transition-all ${playingWord === word ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
+                                <Volume2 size={20} />
+                            </button>
+                        </div>
+                    );
+                })}
             </div>
-
-            <button 
-                onClick={() => onComplete(correctResults)} 
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-900/20 mb-10 active:scale-95"
-            >
+            <button onClick={() => onComplete(correctResults)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-900/20 mb-10 active:scale-95">
                 完成回顾
             </button>
         </div>
@@ -233,39 +194,31 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                                 <span className="w-1.5 h-4 bg-indigo-500 rounded-full"></span>
                                 <span className="text-xs font-bold text-indigo-300 uppercase tracking-widest">详解回顾</span>
                             </div>
-                            <button 
-                                onClick={() => playTTS(currentExercise?.sentence, true)} 
-                                className={`p-2 rounded-xl transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-indigo-400 hover:bg-slate-700'}`}
-                                title="播放完整句子"
-                            >
+                            <button onClick={() => playTTS(currentExercise?.sentence, true)} className={`p-2 rounded-xl transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-indigo-400 hover:bg-slate-700'}`}>
                                {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
                             </button>
                         </div>
                         
                         <div className="flex flex-wrap gap-2 mb-4">
-                            {currentExercise?.targetWords?.map((word, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => playTTS(word)}
-                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 transition-all ${
-                                        playingWord === word 
-                                        ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' 
-                                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                                    }`}
-                                >
-                                    {word} <Volume2 size={12} className={playingWord === word ? 'animate-pulse' : ''} />
-                                </button>
-                            ))}
+                            {currentExercise?.targetWords?.map((word, idx) => {
+                                const level = vocabMap.get(word.toLowerCase()) || 0;
+                                return (
+                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
+                                        <div className="flex items-center gap-1 scale-90 opacity-80">
+                                            <BarChart size={10} />
+                                            <span className="text-[9px] font-bold">Lv{level}</span>
+                                        </div>
+                                        {word} <Volume2 size={12} className={playingWord === word ? 'animate-pulse' : ''} />
+                                    </button>
+                                );
+                            })}
                         </div>
 
                         <p className="text-slate-400 text-sm leading-relaxed mb-6 bg-slate-950/50 p-4 rounded-2xl border border-slate-800/30">
                             {currentExercise?.explanation}
                         </p>
                         
-                        <button 
-                            onClick={handleNext} 
-                            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-indigo-900/20 active:scale-95"
-                        >
+                        <button onClick={handleNext} className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-indigo-900/20 active:scale-95">
                             {currentIndex < exercises.length - 1 ? "下一题" : "查看总结"} <ArrowRight size={18} />
                         </button>
                     </div>
@@ -276,24 +229,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                         {shuffledOptions.map((option, idx) => {
                             const isUsed = userAnswers.includes(option);
                             return (
-                                <button
-                                    key={idx}
-                                    onClick={() => handleOptionClick(option)}
-                                    disabled={isUsed}
-                                    className={`py-4 px-2 rounded-2xl text-sm font-bold border-b-4 transition-all active:translate-y-0.5 active:border-b-0 ${
-                                        isUsed ? 'bg-slate-900 text-slate-700 border-slate-950 opacity-40' : 'bg-slate-800 text-slate-300 border-slate-950 hover:bg-slate-700 hover:text-white'
-                                    }`}
-                                >
+                                <button key={idx} onClick={() => handleOptionClick(option)} disabled={isUsed} className={`py-4 px-2 rounded-2xl text-sm font-bold border-b-4 transition-all active:translate-y-0.5 active:border-b-0 ${isUsed ? 'bg-slate-900 text-slate-700 border-slate-950 opacity-40' : 'bg-slate-800 text-slate-300 border-slate-950 hover:bg-slate-700 hover:text-white'}`}>
                                     {option}
                                 </button>
                             );
                         })}
                     </div>
-                    <button
-                        onClick={checkAnswer}
-                        disabled={!allFilled}
-                        className={`w-full py-5 rounded-[1.5rem] font-bold text-white transition-all shadow-lg active:scale-95 ${allFilled ? 'bg-blue-600 shadow-blue-900/40 hover:bg-blue-500' : 'bg-slate-800 text-slate-600 cursor-not-allowed shadow-none'}`}
-                    >
+                    <button onClick={checkAnswer} disabled={!allFilled} className={`w-full py-5 rounded-[1.5rem] font-bold text-white transition-all shadow-lg active:scale-95 ${allFilled ? 'bg-blue-600 shadow-blue-900/40 hover:bg-blue-500' : 'bg-slate-800 text-slate-600 cursor-not-allowed shadow-none'}`}>
                         {allFilled ? "确认提交" : "请填满所有空格"}
                     </button>
                 </div>
