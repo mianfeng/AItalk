@@ -64,25 +64,39 @@ const App: React.FC = () => {
   };
 
   const startTodayPractice = async () => {
+    if (overdueItems.length === 0) {
+        alert("目前没有需要复习的单词，去学习点新内容吧！");
+        return;
+    }
+
     setIsGenerating('exercise');
     try {
-      let pool: StudyItem[] = [...overdueItems];
-      // 如果到期词太少，补充一些新词凑够至少 3 个
-      if (pool.length < 3) {
-          const needed = 6 - pool.length; 
-          const newItems = await generateDailyContent(needed, vocabList);
-          pool = [...pool, ...newItems];
+      // 1. 核心修复：必须包含所有到期词
+      let selected: StudyItem[] = [...overdueItems];
+      
+      // 2. 如果总数不是3的倍数，寻找“陪跑词”补齐
+      const remainder = selected.length % 3;
+      if (remainder !== 0) {
+          const needed = 3 - remainder;
+          // 优先从已学会但没到期的词里找
+          const learnedNotOverdue = vocabList.filter(v => v.nextReviewAt > Date.now());
+          const fillers = learnedNotOverdue.sort(() => 0.5 - Math.random()).slice(0, needed);
+          
+          if (fillers.length < needed) {
+              // 如果不够，再抓点新词补齐
+              const newItems = await generateDailyContent(needed - fillers.length, vocabList);
+              selected = [...selected, ...fillers, ...newItems];
+          } else {
+              selected = [...selected, ...fillers];
+          }
       }
-      if (pool.length < 3) { alert("词库不足，无法生成练习。"); return; }
       
-      // 记录当前参与练习的所有单词原形对象
-      setCurrentPracticeItems(pool);
+      // 限制单词上限防止 AI 崩溃 (最多 15 组，即 45 词)
+      const finalSelection = selected.slice(0, 45);
       
-      // 随机排序并截取 3 的倍数（AI 是按 3 词一组造句的）
-      const countToTake = pool.length - (pool.length % 3);
-      const selected = pool.sort(() => 0.5 - Math.random()).slice(0, Math.min(countToTake, 45));
+      setCurrentPracticeItems(finalSelection);
+      const exercises = await generatePracticeExercises(finalSelection);
       
-      const exercises = await generatePracticeExercises(selected);
       if (exercises.length === 0) { throw new Error("AI failed to return exercises"); }
       
       setPracticeExercises(exercises);
@@ -96,32 +110,35 @@ const App: React.FC = () => {
 
   const handleStudyComplete = (results: SessionResult[]) => {
     const now = Date.now();
-    const updatedVocabList = [...vocabList];
-    results.forEach(({ item, remembered }) => {
-        const newLevel = remembered ? 1 : 0;
-        // 只有新词才插入，避免重复
-        if (!updatedVocabList.some(v => v.text === item.text)) {
-           updatedVocabList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
-        }
+    setVocabList(prev => {
+        const newList = [...prev];
+        results.forEach(({ item, remembered }) => {
+            const newLevel = remembered ? 1 : 0;
+            if (!newList.some(v => v.text.toLowerCase() === item.text.toLowerCase())) {
+               newList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
+            }
+        });
+        return newList;
     });
-    setVocabList(updatedVocabList);
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
     setMode('dashboard'); 
   };
 
   const handleExerciseComplete = (correctWordsBaseForms: string[]) => {
     const now = Date.now();
+    const correctSet = new Set(correctWordsBaseForms.map(w => w.toLowerCase()));
+    
     setVocabList(prevList => {
         const newList = [...prevList];
-        // 关键修复：从生成的题目中提取参与的所有单词原形
-        const allTargetWords = new Set(practiceExercises.flatMap(ex => ex.targetWords));
+        const allTargetWords = practiceExercises.flatMap(ex => ex.targetWords);
+        const targetSet = new Set(allTargetWords.map(w => w.toLowerCase()));
         
-        // 遍历词库，更新那些参与了本次练习的单词
+        // 更新词库中已存在的词
         const updatedList = newList.map(item => {
-            if (allTargetWords.has(item.text)) {
-                const isCorrect = correctWordsBaseForms.includes(item.text);
+            const itemTextLower = item.text.toLowerCase();
+            if (targetSet.has(itemTextLower)) {
+                const isCorrect = correctSet.has(itemTextLower);
                 const currentLevel = item.masteryLevel || 0;
-                // 正确则 Lv+1，错误则 Lv-1 (最低为1，新词变Lv1)
                 const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
                 
                 return {
@@ -134,13 +151,13 @@ const App: React.FC = () => {
             return item;
         });
 
-        // 同时也处理那些不在词库中（属于临时抽取的“新词”）的情况
-        // 这一步确保了即使是新词在练习中出现也会被加入词库
+        // 处理那些原本不在词库中（陪跑的新词）
         allTargetWords.forEach(wordText => {
-            if (!updatedList.some(v => v.text === wordText)) {
-                const originalItem = currentPracticeItems.find(i => i.text === wordText);
+            const wordLower = wordText.toLowerCase();
+            if (!updatedList.some(v => v.text.toLowerCase() === wordLower)) {
+                const originalItem = currentPracticeItems.find(i => i.text.toLowerCase() === wordLower);
                 if (originalItem) {
-                    const isCorrect = correctWordsBaseForms.includes(wordText);
+                    const isCorrect = correctSet.has(wordLower);
                     const level = isCorrect ? 1 : 0;
                     updatedList.unshift({
                         ...originalItem,
