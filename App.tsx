@@ -46,7 +46,7 @@ const App: React.FC = () => {
   const [practiceExercises, setPracticeExercises] = useState<PracticeExercise[]>([]);
   const [currentPracticeItems, setCurrentPracticeItems] = useState<StudyItem[]>([]);
   const [studyIndex, setStudyIndex] = useState(0); 
-  const [isGenerating, setIsGenerating] = useState<string | null>(null); // Stores which button is loading
+  const [isGenerating, setIsGenerating] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem('lingua_vocab', JSON.stringify(vocabList)); }, [vocabList]);
   useEffect(() => { localStorage.setItem('lingua_stats', JSON.stringify(dailyStats)); }, [dailyStats]);
@@ -67,18 +67,31 @@ const App: React.FC = () => {
     setIsGenerating('exercise');
     try {
       let pool: StudyItem[] = [...overdueItems];
+      // 如果到期词太少，补充一些新词凑够至少 3 个
       if (pool.length < 3) {
-          const needed = 9 - pool.length; 
+          const needed = 6 - pool.length; 
           const newItems = await generateDailyContent(needed, vocabList);
           pool = [...pool, ...newItems];
       }
       if (pool.length < 3) { alert("词库不足，无法生成练习。"); return; }
+      
+      // 记录当前参与练习的所有单词原形对象
       setCurrentPracticeItems(pool);
-      const selected = pool.sort(() => 0.5 - Math.random()).slice(0, Math.min(pool.length - (pool.length % 3), 45));
+      
+      // 随机排序并截取 3 的倍数（AI 是按 3 词一组造句的）
+      const countToTake = pool.length - (pool.length % 3);
+      const selected = pool.sort(() => 0.5 - Math.random()).slice(0, Math.min(countToTake, 45));
+      
       const exercises = await generatePracticeExercises(selected);
+      if (exercises.length === 0) { throw new Error("AI failed to return exercises"); }
+      
       setPracticeExercises(exercises);
       setMode('exercise');
-    } catch (e) { alert("生成练习失败"); } finally { setIsGenerating(null); }
+    } catch (e) { 
+      alert("生成练习失败，请稍后重试。"); 
+    } finally { 
+      setIsGenerating(null); 
+    }
   };
 
   const handleStudyComplete = (results: SessionResult[]) => {
@@ -86,33 +99,63 @@ const App: React.FC = () => {
     const updatedVocabList = [...vocabList];
     results.forEach(({ item, remembered }) => {
         const newLevel = remembered ? 1 : 0;
-        updatedVocabList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
+        // 只有新词才插入，避免重复
+        if (!updatedVocabList.some(v => v.text === item.text)) {
+           updatedVocabList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
+        }
     });
     setVocabList(updatedVocabList);
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
     setMode('dashboard'); 
   };
 
-  const handleExerciseComplete = (correctWords: string[]) => {
+  const handleExerciseComplete = (correctWordsBaseForms: string[]) => {
     const now = Date.now();
-    let updatedVocabList = [...vocabList];
-    const usedWords = new Set(practiceExercises.flatMap(ex => ex.correctAnswers));
-    const relevantItems = currentPracticeItems.filter(item => usedWords.has(item.text));
+    setVocabList(prevList => {
+        const newList = [...prevList];
+        // 关键修复：从生成的题目中提取参与的所有单词原形
+        const allTargetWords = new Set(practiceExercises.flatMap(ex => ex.targetWords));
+        
+        // 遍历词库，更新那些参与了本次练习的单词
+        const updatedList = newList.map(item => {
+            if (allTargetWords.has(item.text)) {
+                const isCorrect = correctWordsBaseForms.includes(item.text);
+                const currentLevel = item.masteryLevel || 0;
+                // 正确则 Lv+1，错误则 Lv-1 (最低为1，新词变Lv1)
+                const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
+                
+                return {
+                    ...item,
+                    lastReviewed: now,
+                    nextReviewAt: now + getNextReviewInterval(newLevel),
+                    masteryLevel: newLevel
+                };
+            }
+            return item;
+        });
 
-    relevantItems.forEach(item => {
-        const existingIndex = updatedVocabList.findIndex(v => v.text === item.text);
-        const answeredCorrectly = correctWords.includes(item.text);
-        let newLevel = 0;
-        if (existingIndex >= 0) {
-            const currentLevel = updatedVocabList[existingIndex].masteryLevel;
-            newLevel = answeredCorrectly ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
-            updatedVocabList[existingIndex] = { ...updatedVocabList[existingIndex], lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel };
-        } else {
-            newLevel = answeredCorrectly ? 1 : 0;
-            updatedVocabList.unshift({ ...item, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel, saved: true } as VocabularyItem);
-        }
+        // 同时也处理那些不在词库中（属于临时抽取的“新词”）的情况
+        // 这一步确保了即使是新词在练习中出现也会被加入词库
+        allTargetWords.forEach(wordText => {
+            if (!updatedList.some(v => v.text === wordText)) {
+                const originalItem = currentPracticeItems.find(i => i.text === wordText);
+                if (originalItem) {
+                    const isCorrect = correctWordsBaseForms.includes(wordText);
+                    const level = isCorrect ? 1 : 0;
+                    updatedList.unshift({
+                        ...originalItem,
+                        addedAt: now,
+                        lastReviewed: now,
+                        nextReviewAt: now + getNextReviewInterval(level),
+                        masteryLevel: level,
+                        saved: true
+                    } as VocabularyItem);
+                }
+            }
+        });
+
+        return updatedList;
     });
-    setVocabList(updatedVocabList);
     setMode('dashboard');
   };
 
