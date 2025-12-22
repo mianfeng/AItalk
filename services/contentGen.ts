@@ -17,19 +17,50 @@ function getGeminiClient() {
   return new GoogleGenAI({ apiKey });
 }
 
+/**
+ * 后置处理：防止 AI 抽风将多个选项合并成一个字符串
+ */
+function sanitizeExercises(exercises: any[]): PracticeExercise[] {
+    return exercises.map(ex => {
+        let options: string[] = [];
+        if (Array.isArray(ex.options)) {
+            ex.options.forEach((opt: string) => {
+                // 如果 AI 返回了 "word1, word2, word3" 这种合并项，强行拆分
+                if (typeof opt === 'string' && opt.includes(',') && opt.split(',').length >= 2) {
+                    const parts = opt.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    options.push(...parts);
+                } else {
+                    options.push(opt);
+                }
+            });
+        }
+        
+        // 去重并确保包含正确答案
+        const finalOptions = Array.from(new Set([...options, ...(ex.correctAnswers || [])]));
+        
+        return {
+            ...ex,
+            options: finalOptions
+        } as PracticeExercise;
+    });
+}
+
 export async function generatePracticeExercises(items: StudyItem[]): Promise<PracticeExercise[]> {
+  let rawExercises: any[] = [];
   if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.length > 5) {
     try {
-        const result = await generatePracticeExercisesWithDeepSeek(items);
+        rawExercises = await generatePracticeExercisesWithDeepSeek(items);
         console.log("成功调用 DeepSeek API - 生成练习");
-        return result;
     } catch (e) {
         console.warn("DeepSeek 失败，切换至 Gemini", e);
+        rawExercises = await generatePracticeExercisesWithGemini(items);
     }
+  } else {
+    rawExercises = await generatePracticeExercisesWithGemini(items);
+    console.log("成功调用 Gemini API - 生成练习");
   }
-  const result = await generatePracticeExercisesWithGemini(items);
-  console.log("成功调用 Gemini API - 生成练习");
-  return result;
+  
+  return sanitizeExercises(rawExercises);
 }
 
 async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promise<PracticeExercise[]> {
@@ -46,18 +77,20 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
   
   CRITICAL RULES FOR CONTENT:
-  1. STICK TO THE MEANING: You MUST create the sentence based on the provided "meaning" (Chinese translation) for each word. DO NOT use secondary or extended meanings that deviate from the provided translation.
-  2. NATURAL USAGE: Use the words in a natural, modern daily conversation or professional context that fits the provided meaning.
-  3. FORMS: If a word like "be" becomes "is/are" or "one's" becomes "his", use the specific form in "sentence" and "correctAnswers".
+  1. STICK TO THE MEANING: You MUST create the sentence based on the provided "meaning" (Chinese translation).
+  2. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+     - WRONG: ["management, label, commercial", "distractor1"]
+     - RIGHT: ["management", "label", "commercial", "distractor1", "distractor2"]
+     NEVER combine multiple target words into a single option string.
   
   For EACH group, provide:
-  1. "targetWords": The original words provided in the group (the "text" field).
-  2. "sentence": A natural sentence using those words (fitting the provided meanings).
-  3. "sentenceZh": Chinese translation of the sentence.
+  1. "targetWords": The original words provided (text field).
+  2. "sentence": A natural sentence using those words.
+  3. "sentenceZh": Chinese translation.
   4. "quizQuestion": The sentence where the words are replaced by "____".
-  5. "correctAnswers": The exact strings for the blanks.
-  6. "options": The correct strings plus 3-4 distractors.
-  7. "explanation": Concise Chinese meaning analysis of the target words only.
+  5. "correctAnswers": The exact strings for the blanks in order.
+  6. "options": A flat array of 6-8 individual items (including the correct answers as separate elements + distractors).
+  7. "explanation": Concise Chinese meaning analysis.
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
@@ -73,7 +106,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.7
+      temperature: 0.6
     })
   });
 
@@ -83,7 +116,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   return parsed.exercises || [];
 }
 
-async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<PracticeExercise[]> {
+async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<any[]> {
   const client = getGeminiClient();
   if (!client) return [];
 
@@ -93,9 +126,10 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
     wordGroups.push(group);
   }
 
-  const prompt = `Create English exercises for these groups: ${JSON.stringify(wordGroups)}. 
-  STRICT RULE: The sentences MUST strictly reflect the provided "Meaning" for each word. DO NOT use figurative or extended meanings.
-  Return JSON array with targetWords (text only), sentence, sentenceZh, quizQuestion, options(6), correctAnswers(3), explanation (Chinese).`;
+  const prompt = `Create English exercises for: ${JSON.stringify(wordGroups)}. 
+  STRICT RULE: The "options" field MUST be an array of SINGLE strings. Do not put multiple words in one option.
+  Example options: ["word1", "word2", "word3", "word4"].
+  Return JSON array with targetWords, sentence, sentenceZh, quizQuestion, options(at least 6 individual strings), correctAnswers, explanation.`;
 
   try {
     const response = await client.models.generateContent({
