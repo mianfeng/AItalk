@@ -33,29 +33,31 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
 }
 
 async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promise<PracticeExercise[]> {
-  const wordGroups: string[][] = [];
-  // 修复：不再强制 3 个一组才推送，最后一组即便只有 1-2 个也推送
+  const wordGroups: {text: string, meaning: string}[][] = [];
   for (let i = 0; i < items.length; i += 3) {
-    wordGroups.push(items.slice(i, i + 3).map(it => it.text));
+    wordGroups.push(items.slice(i, i + 3).map(it => ({
+        text: it.text,
+        meaning: it.translation
+    })));
   }
 
   if (wordGroups.length === 0) return [];
 
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
   
-  RULES FOR CONTENT:
-  1. If a target word like "be" becomes "is/are" or "one's" becomes "his", use the specific form in "sentence" and "correctAnswers".
-  2. For the "explanation", ONLY explain the meaning and usage of the 3 target words in Chinese. 
-  3. DO NOT explain grammar, tenses, or word form changes (e.g., don't say "advocate becomes advocates because of the subject"). Keep it concise.
+  CRITICAL RULES FOR CONTENT:
+  1. STICK TO THE MEANING: You MUST create the sentence based on the provided "meaning" (Chinese translation) for each word. DO NOT use secondary or extended meanings that deviate from the provided translation.
+  2. NATURAL USAGE: Use the words in a natural, modern daily conversation or professional context that fits the provided meaning.
+  3. FORMS: If a word like "be" becomes "is/are" or "one's" becomes "his", use the specific form in "sentence" and "correctAnswers".
   
   For EACH group, provide:
-  1. "targetWords": The original words provided in the group.
-  2. "sentence": A natural sentence using those words.
-  3. "sentenceZh": Chinese translation.
+  1. "targetWords": The original words provided in the group (the "text" field).
+  2. "sentence": A natural sentence using those words (fitting the provided meanings).
+  3. "sentenceZh": Chinese translation of the sentence.
   4. "quizQuestion": The sentence where the words are replaced by "____".
   5. "correctAnswers": The exact strings for the blanks.
   6. "options": The correct strings plus 3-4 distractors.
-  7. "explanation": Concise Chinese meaning analysis only.
+  7. "explanation": Concise Chinese meaning analysis of the target words only.
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
@@ -71,7 +73,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
-      temperature: 1.0
+      temperature: 0.7
     })
   });
 
@@ -85,14 +87,15 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   const client = getGeminiClient();
   if (!client) return [];
 
-  const wordGroups: string[][] = [];
+  const wordGroups: string[] = [];
   for (let i = 0; i < items.length; i += 3) {
-    wordGroups.push(items.slice(i, i + 3).map(it => it.text));
+    const group = items.slice(i, i + 3).map(it => `${it.text}(Meaning: ${it.translation})`).join(", ");
+    wordGroups.push(group);
   }
 
-  const prompt = `Create exercises for: ${JSON.stringify(wordGroups)}. 
-  Explanation should ONLY cover word meanings in Chinese. DO NOT mention tenses or grammar rules. 
-  Return JSON array with targetWords, sentence, sentenceZh, quizQuestion, options(6), correctAnswers(3), explanation.`;
+  const prompt = `Create English exercises for these groups: ${JSON.stringify(wordGroups)}. 
+  STRICT RULE: The sentences MUST strictly reflect the provided "Meaning" for each word. DO NOT use figurative or extended meanings.
+  Return JSON array with targetWords (text only), sentence, sentenceZh, quizQuestion, options(6), correctAnswers(3), explanation (Chinese).`;
 
   try {
     const response = await client.models.generateContent({
