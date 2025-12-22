@@ -19,7 +19,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
   
-  // 记录所有练习过的单词及其最终正误
+  // 记录所有练习过的单词及其最终正误 (Map<单词拼写, 是否正确>)
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
   
   const [isFinished, setIsFinished] = useState(false);
@@ -56,7 +56,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   const normalize = (str: string | null) => {
     if (!str) return "";
-    return str.toLowerCase().trim().replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'").replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"');
+    return str.toLowerCase().trim()
+        .replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'")
+        .replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"');
   };
 
   const handleOptionClick = (word: string) => {
@@ -77,15 +79,20 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const checkAnswer = () => {
-    const correct = userAnswers.every((ans, i) => normalize(ans) === normalize(currentExercise.correctAnswers[i]));
-    setIsCorrect(correct);
+    // 整体对错判断（用于 UI 显示：如果全对显示绿色勾，错一个就显示红色叉）
+    const overallCorrect = userAnswers.every((ans, i) => 
+        normalize(ans) === normalize(currentExercise.correctAnswers[i])
+    );
+    
+    setIsCorrect(overallCorrect);
     setShowExplanation(true);
     
-    // 记录结果：本题包含的 3 个 targetWords 共享这道题的对错结果
+    // 精准结果记录：遍历每个单词，根据其对应位置的回答是否正确来记录
     setSessionResults(prev => {
         const next = new Map(prev);
-        currentExercise.targetWords.forEach(word => {
-            next.set(word, correct);
+        currentExercise.targetWords.forEach((word, i) => {
+            const isThisSlotCorrect = normalize(userAnswers[i]) === normalize(currentExercise.correctAnswers[i]);
+            next.set(word, isThisSlotCorrect);
         });
         return next;
     });
@@ -133,7 +140,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   if (isFinished) {
     const finalResultsArray = Array.from(sessionResults.entries()).map(([word, isCorrect]) => ({ word, isCorrect }));
-    const correctWordsOnly = finalResultsArray.filter(r => r.isCorrect).map(r => r.word);
 
     return (
       <div className="h-full flex flex-col bg-slate-950 p-6 overflow-y-auto custom-scrollbar">
