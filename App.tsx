@@ -277,11 +277,17 @@ const App: React.FC = () => {
                      <div className="p-3 w-fit rounded-2xl bg-orange-500/10 text-orange-400">
                         {isGenerating === 'exercise' && !localStorage.getItem(CACHE_KEY) ? <Loader2 className="animate-spin" size={24} /> : <Shuffle size={24} />}
                      </div>
-                     {overdueItems.length > 0 && (
-                        <div className="absolute top-4 right-4 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-orange-500/30 animate-pulse">
-                           {overdueItems.length}
-                        </div>
-                     )}
+                     <div className="absolute top-4 right-4">
+                        {overdueItems.length > 0 ? (
+                            <div className="bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-lg shadow-orange-500/30 animate-pulse">
+                               待复习 {overdueItems.length}
+                            </div>
+                        ) : (
+                            <div className="bg-slate-800 text-slate-500 text-[10px] font-medium px-2 py-1 rounded-lg border border-slate-700/50">
+                               今日已完成
+                            </div>
+                        )}
+                     </div>
                      <div className="text-lg font-bold text-slate-100">每日巩固</div>
                   </button>
                   <button onClick={() => setMode('shadowing')} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 flex flex-col justify-between transition-transform active:scale-95">
