@@ -66,7 +66,6 @@ const App: React.FC = () => {
    * 核心逻辑提取：选择单词并调用 AI 生成练习题
    */
   const fetchNewExercises = async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
-    // 排除掉已经在当前练习中的单词，避免下一轮题目重复
     const excludeTexts = new Set(excludeItems.map(i => fastClean(i.text)));
     const filteredVocab = currentVocab.filter(v => !excludeTexts.has(fastClean(v.text)));
     
@@ -129,11 +128,6 @@ const App: React.FC = () => {
   };
 
   const startTodayPractice = async () => {
-    if (overdueItems.length === 0) {
-        alert("目前没有需要复习的单词，去学习点新内容吧！");
-        return;
-    }
-
     // 优先使用缓存
     const cachedData = localStorage.getItem(CACHE_KEY);
     if (cachedData) {
@@ -153,8 +147,22 @@ const App: React.FC = () => {
 
     setIsGenerating('exercise');
     try {
-      const result = await fetchNewExercises(vocabList);
-      if (!result || result.exercises.length === 0) { throw new Error("AI failed"); }
+      let result = await fetchNewExercises(vocabList);
+      
+      // 如果没有需要复习的单词，随机从词库抽取3个新词
+      if (!result || result.exercises.length === 0) {
+        console.log("没有待复习单词，正在获取3个新词进行巩固...");
+        const newItems = await generateDailyContent(3, vocabList);
+        if (newItems.length > 0) {
+          const exercises = await generatePracticeExercises(newItems);
+          result = { exercises, items: newItems };
+        }
+      }
+
+      if (!result || result.exercises.length === 0) { 
+        alert("目前词库已学完且没有待复习单词，去学习点新内容吧！");
+        return; 
+      }
       
       setPracticeExercises(result.exercises);
       setCurrentPracticeItems(result.items);
