@@ -1,17 +1,20 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise } from "../types";
+import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise, VocabularyItem } from "../types";
 import { getLocalContent } from "./localRepository";
 
-// 更换为更经济的 Flash-Lite 系列模型
-const GENERAL_MODEL_NAME = "gemini-flash-lite-latest"; // 基础任务与翻译
-const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; // TTS 专用模型 (不可更换为 Lite)
-const CONVERSATION_MODEL_NAME = "gemini-flash-lite-latest"; // 英语对话逻辑分析
-const PRACTICE_MODEL_NAME = "gemini-flash-lite-latest"; // JSON 练习题生成
+// Using models according to the coding guidelines
+const GENERAL_MODEL_NAME = "gemini-3-flash-preview"; 
+const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
+const CONVERSATION_MODEL_NAME = "gemini-3-flash-preview"; 
+const PRACTICE_MODEL_NAME = "gemini-3-flash-preview"; 
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";
 
+/**
+ * Initializes the Google GenAI client using the environment variable API_KEY.
+ */
 function getGeminiClient() {
   const apiKey = process.env.API_KEY;
   if (!apiKey) return null;
@@ -19,33 +22,141 @@ function getGeminiClient() {
 }
 
 /**
- * 后置处理：防止 AI 抽风将多个选项合并成一个字符串
+ * Generates daily study items by fetching from local repository.
+ */
+// Fix: Added missing exported member 'generateDailyContent'
+export async function generateDailyContent(count: number, existingVocab: VocabularyItem[]): Promise<StudyItem[]> {
+  const existingTexts = new Set(existingVocab.map(v => v.text.toLowerCase()));
+  return getLocalContent(count, existingTexts);
+}
+
+/**
+ * Generates an initial conversation topic using Gemini.
+ */
+// Fix: Added missing exported member 'generateInitialTopic'
+export async function generateInitialTopic(): Promise<string> {
+  const ai = getGeminiClient();
+  if (!ai) return "Let's talk about your daily routine.";
+  
+  const response = await ai.models.generateContent({
+    model: GENERAL_MODEL_NAME,
+    contents: "Suggest a friendly, engaging conversation topic for an English language learner. Keep it under 15 words.",
+  });
+  
+  return response.text || "What is your favorite travel destination?";
+}
+
+/**
+ * Generates a conversation topic based on specific vocabulary words.
+ */
+// Fix: Added missing exported member 'generateTopicFromVocab'
+export async function generateTopicFromVocab(vocab: VocabularyItem[]): Promise<string> {
+  const ai = getGeminiClient();
+  if (!ai) return "Let's practice some new vocabulary.";
+  
+  const words = vocab.map(v => v.text).join(", ");
+  const response = await ai.models.generateContent({
+    model: GENERAL_MODEL_NAME,
+    contents: `Suggest a short conversation scenario or question that naturally uses these English words: ${words}. Keep it brief.`,
+  });
+  
+  return response.text || `Can you tell me about a situation where you might use the word '${vocab[0]?.text}'?`;
+}
+
+/**
+ * Generates a daily inspiring quote with translation and source.
+ */
+// Fix: Added missing exported member 'generateDailyQuote'
+export async function generateDailyQuote(): Promise<DailyQuoteItem> {
+  const ai = getGeminiClient();
+  if (!ai) return { english: "Stay hungry, stay foolish.", chinese: "求知若饥，虚心若愚。", source: "Steve Jobs" };
+  
+  const response = await ai.models.generateContent({
+    model: GENERAL_MODEL_NAME,
+    contents: "Provide an inspiring quote in English with its Chinese translation and the author/source. Return in JSON format.",
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          english: { type: Type.STRING },
+          chinese: { type: Type.STRING },
+          source: { type: Type.STRING }
+        },
+        required: ["english", "chinese", "source"]
+      }
+    }
+  });
+  
+  try {
+    return JSON.parse(response.text || "");
+  } catch (e) {
+    return { english: "The journey is the reward.", chinese: "旅程本身就是回报。", source: "Steve Jobs" };
+  }
+}
+
+/**
+ * Generates high-quality speech using Gemini TTS model.
+ */
+// Fix: Added missing exported member 'generateSpeech'
+export async function generateSpeech(text: string): Promise<string | undefined> {
+  const ai = getGeminiClient();
+  if (!ai) return undefined;
+
+  const response = await ai.models.generateContent({
+    model: SPEECH_MODEL_NAME,
+    contents: [{ parts: [{ text }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Kore' },
+        },
+      },
+    },
+  });
+
+  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+}
+
+/**
+ * Post-processing for exercise generation.
  */
 function sanitizeExercises(exercises: any[]): PracticeExercise[] {
+    if (!Array.isArray(exercises)) return [];
+    
     return exercises.map(ex => {
+        const targetWords = Array.isArray(ex.targetWords) ? ex.targetWords : (ex.word ? [ex.word] : []);
+        const correctAnswers = Array.isArray(ex.correctAnswers) ? ex.correctAnswers : (ex.correctAnswer ? [ex.correctAnswer] : []);
+        
         let options: string[] = [];
         if (Array.isArray(ex.options)) {
-            ex.options.forEach((opt: string) => {
+            ex.options.forEach((opt: any) => {
                 if (typeof opt === 'string' && opt.includes(',') && opt.split(',').length >= 2) {
-                    const parts = opt.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    const parts = opt.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
                     options.push(...parts);
-                } else {
+                } else if (typeof opt === 'string') {
                     options.push(opt);
                 }
             });
         }
         
-        const finalOptions = Array.from(new Set([...options, ...(ex.correctAnswers || [])]));
+        const finalOptions = Array.from(new Set([...options, ...correctAnswers]));
         
         return {
-            ...ex,
-            options: finalOptions
+            targetWords,
+            sentence: ex.sentence || "",
+            sentenceZh: ex.sentenceZh || "",
+            quizQuestion: ex.quizQuestion || ex.sentence?.replace(new RegExp(correctAnswers.join('|'), 'gi'), '____') || "Error: Missing Question",
+            options: finalOptions,
+            correctAnswers,
+            explanation: ex.explanation || ""
         } as PracticeExercise;
-    });
+    }).filter(ex => ex.targetWords.length > 0 && ex.quizQuestion.includes('____'));
 }
 
 /**
- * 核心逻辑：优先调用 Google Gemini (Lite 系列以节省成本)，DeepSeek 作为备选
+ * Generates practice exercises from study items.
  */
 export async function generatePracticeExercises(items: StudyItem[]): Promise<PracticeExercise[]> {
   let rawExercises: any[] = [];
@@ -55,24 +166,30 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
     if (client) {
         rawExercises = await generatePracticeExercisesWithGemini(items);
         if (rawExercises && rawExercises.length > 0) {
-            console.log(`成功调用 Google Gemini (${PRACTICE_MODEL_NAME}) - 生成练习`);
-            return sanitizeExercises(rawExercises);
+            const sanitized = sanitizeExercises(rawExercises);
+            if (sanitized.length > 0) {
+                console.log(`成功调用 Google Gemini (${PRACTICE_MODEL_NAME}) - 生成练习`);
+                return sanitized;
+            }
         }
     }
   } catch (e) {
-    console.warn("Google Gemini 失败，正在切换至备选方案 DeepSeek...", e);
+    console.warn("Google Gemini 练习生成失败:", e);
   }
 
   if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.length > 5) {
     try {
         rawExercises = await generatePracticeExercisesWithDeepSeek(items);
-        console.log("成功调用 DeepSeek API - 生成练习 (备选)");
+        if (rawExercises && rawExercises.length > 0) {
+            console.log("成功调用 DeepSeek API - 生成练习 (备选)");
+            return sanitizeExercises(rawExercises);
+        }
     } catch (e) {
         console.error("所有 API 均已失败", e);
     }
   }
   
-  return sanitizeExercises(rawExercises);
+  return [];
 }
 
 async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promise<PracticeExercise[]> {
@@ -87,10 +204,12 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   if (wordGroups.length === 0) return [];
 
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
+  Each group of 3 words must produce ONE exercise.
   
   CRITICAL RULES:
-  1. STICK TO THE MEANING: You MUST create the sentence based on the provided "meaning".
-  2. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+  1. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
+  2. The "correctAnswers" must be a list of the 3 words in order.
+  3. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
   
   Output JSON format: {"exercises": [...]}`;
 
@@ -123,19 +242,27 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
 
   const wordGroups: string[] = [];
   for (let i = 0; i < items.length; i += 3) {
-    const group = items.slice(i, i + 3).map(it => `${it.text}(Meaning: ${it.translation})`).join(", ");
+    const group = items.slice(i, i + 3).map(it => `${it.text} (means: ${it.translation})`).join(", ");
     wordGroups.push(group);
   }
 
-  const prompt = `Create English exercises for: ${JSON.stringify(wordGroups)}. 
-  STRICT RULE: The "options" field MUST be an array of SINGLE strings. 
-  Return JSON array with targetWords, sentence, sentenceZh, quizQuestion, options(at least 6 individual strings), correctAnswers, explanation.`;
+  const prompt = `Task: Create fill-in-the-blank English exercises.
+  Data groups: ${JSON.stringify(wordGroups)}.
+  
+  For each group, create ONE sentence that uses all 3 target words.
+  Requirement:
+  - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
+  - "targetWords": The 3 words provided.
+  - "correctAnswers": The 3 words in correct order.
+  - "options": The 3 correct words plus 4-6 distractors (total 8-10 individual strings).
+  - "sentenceZh": Chinese translation of the full sentence.`;
 
   try {
     const response = await ai.models.generateContent({
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
+        systemInstruction: "You are a specialized JSON generator for English learning exercises. Always return a valid JSON array of objects.",
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
@@ -146,16 +273,20 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
               targetWords: { type: Type.ARRAY, items: { type: Type.STRING } },
               sentence: { type: Type.STRING },
               sentenceZh: { type: Type.STRING },
-              quizQuestion: { type: Type.STRING },
+              quizQuestion: { type: Type.STRING, description: "Sentence with exactly three '____' placeholders" },
               options: { type: Type.ARRAY, items: { type: Type.STRING } },
               correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
               explanation: { type: Type.STRING }
-            }
+            },
+            required: ["targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers"]
           }
         } 
       }
     });
-    return JSON.parse(response.text || "[]");
+    
+    const text = response.text;
+    if (!text) return [];
+    return JSON.parse(text);
   } catch (e) {
     console.error("Gemini Content Gen Error:", e);
     return [];
@@ -176,13 +307,18 @@ export async function analyzeAudioResponse(audioBase64: string, currentTopic: st
       { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
     ],
     config: { 
+      systemInstruction: "You are an English speaking coach. Analyze audio transcripts and provide feedback in JSON.",
       responseMimeType: "application/json",
       temperature: 1.0
     }
   });
-  return JSON.parse(response.text.trim());
+  return JSON.parse(response.text || "{}");
 }
 
+/**
+ * Evaluates pronunciation accuracy of a specific text.
+ */
+// Fix: Completed cut-off evaluatePronunciation function
 export async function evaluatePronunciation(audioBase64: string, targetText: string): Promise<{ score: number; feedback: string }> {
   const ai = getGeminiClient();
   if (!ai) return { score: 0, feedback: "API Key Missing" };
@@ -194,66 +330,21 @@ export async function evaluatePronunciation(audioBase64: string, targetText: str
       { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
     ],
     config: { 
-        responseMimeType: "application/json" 
-    }
-  });
-  return JSON.parse(response.text.trim());
-}
-
-export async function generateDailyQuote(): Promise<DailyQuoteItem> {
-  const ai = getGeminiClient();
-  if (!ai) return { english: "Stay hungry.", chinese: "保持饥渴。", source: "Steve Jobs" };
-  
-  const response = await ai.models.generateContent({
-    model: GENERAL_MODEL_NAME,
-    contents: `Generate an inspiring quote about learning or growth in JSON format.`,
-    config: { 
-      responseMimeType: "application/json",
-      temperature: 1.0
-    }
-  });
-  return JSON.parse(response.text.trim());
-}
-
-export async function generateSpeech(text: string): Promise<string | null> {
-  const ai = getGeminiClient();
-  if (!ai) return null;
-  try {
-    const response = await ai.models.generateContent({
-      model: SPEECH_MODEL_NAME,
-      contents: [{ parts: [{ text }] }],
-      config: { 
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: 'Kore' },
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                score: { type: Type.NUMBER },
+                feedback: { type: Type.STRING }
             },
-        },
-      },
-    });
-    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-  } catch (error) {
-    console.error("TTS Error:", error);
-    return null;
-  }
-}
-
-export async function generateDailyContent(count: number = 15, currentVocabList: { text: string }[] = []): Promise<StudyItem[]> {
-  return getLocalContent(count, new Set(currentVocabList.map(v => v.text)), 'word');
-}
-
-export async function generateInitialTopic(): Promise<string> {
-    const topics = ["Ordering Bubble Tea", "Returning a package", "Noisy neighbors", "Planning a trip", "Dream job"];
-    return topics[Math.floor(Math.random() * topics.length)];
-}
-
-export async function generateTopicFromVocab(items: StudyItem[]): Promise<string> {
-  const ai = getGeminiClient();
-  if (!ai) return generateInitialTopic();
-  const response = await ai.models.generateContent({ 
-    model: GENERAL_MODEL_NAME, 
-    contents: `Based on these English words: ${items.map(i => i.text).join(",")}, generate a short, natural conversation scenario title in English.`,
-    config: { temperature: 1.0 }
+            required: ["score", "feedback"]
+        } 
+    }
   });
-  return response.text?.trim() || "Daily Conversation";
+  
+  try {
+    return JSON.parse(response.text || "");
+  } catch (e) {
+    return { score: 0, feedback: "Evaluation failed" };
+  }
 }
