@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise } from './types';
 import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises } from './services/contentGen';
 import { getTotalLocalItemsCount } from './services/localRepository';
@@ -12,7 +12,8 @@ import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2 } f
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'shadowing' | 'exercise';
 
-// 提取清洗逻辑到组件外部
+const CACHE_KEY = 'lingua_cached_exercises';
+
 const fastClean = (text: string) => {
     if (!text) return "";
     return text.trim().toLowerCase()
@@ -61,6 +62,62 @@ const App: React.FC = () => {
 
   const overdueItems = vocabList.filter(v => v.nextReviewAt <= Date.now());
 
+  /**
+   * 核心逻辑提取：选择单词并调用 AI 生成练习题
+   */
+  const fetchNewExercises = async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
+    // 排除掉已经在当前练习中的单词，避免下一轮题目重复
+    const excludeTexts = new Set(excludeItems.map(i => fastClean(i.text)));
+    const filteredVocab = currentVocab.filter(v => !excludeTexts.has(fastClean(v.text)));
+    
+    const overdue = filteredVocab.filter(v => v.nextReviewAt <= Date.now());
+    if (overdue.length === 0) return null;
+
+    let selected: StudyItem[] = [...overdue];
+    const remainder = selected.length % 3;
+    if (remainder !== 0) {
+        const needed = 3 - remainder;
+        const learnedNotOverdue = filteredVocab.filter(v => v.nextReviewAt > Date.now());
+        const fillers = learnedNotOverdue.sort(() => 0.5 - Math.random()).slice(0, needed);
+        if (fillers.length < needed) {
+            const newItems = await generateDailyContent(needed - fillers.length, currentVocab);
+            selected = [...selected, ...fillers, ...newItems];
+        } else {
+            selected = [...selected, ...fillers];
+        }
+    }
+    
+    const finalSelection = selected.slice(0, 45);
+    const exercises = await generatePracticeExercises(finalSelection);
+    return { exercises, items: finalSelection };
+  };
+
+  /**
+   * 预加载函数：在后台生成题目并存入缓存
+   */
+  const prefetchExercises = useCallback(async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) return; 
+
+    console.log("正在后台预加载下一轮练习题...");
+    try {
+        const result = await fetchNewExercises(currentVocab, excludeItems);
+        if (result && result.exercises.length > 0) {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(result));
+            console.log("后台预加载成功！");
+        }
+    } catch (e) {
+        console.warn("后台预加载失败", e);
+    }
+  }, []);
+
+  // Dashboard 加载时的自动预加载
+  useEffect(() => {
+    if (mode === 'dashboard' && overdueItems.length > 0) {
+        prefetchExercises(vocabList);
+    }
+  }, [mode, vocabList.length, prefetchExercises]);
+
   const startDailyPlan = async () => {
     setIsGenerating('study');
     try {
@@ -77,29 +134,30 @@ const App: React.FC = () => {
         return;
     }
 
+    // 优先使用缓存
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    if (cachedData) {
+        try {
+            const parsed = JSON.parse(cachedData);
+            if (parsed.exercises && parsed.exercises.length > 0) {
+                setPracticeExercises(parsed.exercises);
+                setCurrentPracticeItems(parsed.items);
+                setMode('exercise');
+                localStorage.removeItem(CACHE_KEY);
+                return;
+            }
+        } catch (e) {
+            localStorage.removeItem(CACHE_KEY);
+        }
+    }
+
     setIsGenerating('exercise');
     try {
-      let selected: StudyItem[] = [...overdueItems];
-      const remainder = selected.length % 3;
-      if (remainder !== 0) {
-          const needed = 3 - remainder;
-          const learnedNotOverdue = vocabList.filter(v => v.nextReviewAt > Date.now());
-          const fillers = learnedNotOverdue.sort(() => 0.5 - Math.random()).slice(0, needed);
-          if (fillers.length < needed) {
-              const newItems = await generateDailyContent(needed - fillers.length, vocabList);
-              selected = [...selected, ...fillers, ...newItems];
-          } else {
-              selected = [...selected, ...fillers];
-          }
-      }
+      const result = await fetchNewExercises(vocabList);
+      if (!result || result.exercises.length === 0) { throw new Error("AI failed"); }
       
-      const finalSelection = selected.slice(0, 45);
-      setCurrentPracticeItems(finalSelection);
-      const exercises = await generatePracticeExercises(finalSelection);
-      
-      if (exercises.length === 0) { throw new Error("AI failed to return exercises"); }
-      
-      setPracticeExercises(exercises);
+      setPracticeExercises(result.exercises);
+      setCurrentPracticeItems(result.items);
       setMode('exercise');
     } catch (e) { 
       alert("生成练习失败，请稍后重试。"); 
@@ -129,15 +187,12 @@ const App: React.FC = () => {
     const now = Date.now();
     
     setVocabList(prevList => {
-        // 先对所有传入的 word 进行清洗
         const resultMap = new Map(results.map(r => [fastClean(r.word), r.isCorrect]));
-        
         const updatedList = prevList.map(item => {
             const itemClean = fastClean(item.text);
             let isMatched = false;
             let isCorrect = false;
 
-            // Fuzzy Match: 如果 resultMap 里的键包含 itemClean，或者 itemClean 包含 resultMap 里的键
             for (const [resWord, correct] of resultMap.entries()) {
                 if (resWord === itemClean || (itemClean.length > 3 && resWord.includes(itemClean)) || (resWord.length > 3 && itemClean.includes(resWord))) {
                     isMatched = true;
@@ -149,40 +204,24 @@ const App: React.FC = () => {
             if (isMatched) {
                 const currentLevel = item.masteryLevel || 0;
                 const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
-                
-                return {
-                    ...item,
-                    text: itemClean, // 顺便修复之前存下的脏数据
-                    lastReviewed: now,
-                    nextReviewAt: now + getNextReviewInterval(newLevel),
-                    masteryLevel: newLevel
-                };
+                return { ...item, text: itemClean, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel };
             }
             return item;
         });
 
-        // 处理新加入的词
         results.forEach(({ word, isCorrect }) => {
             const wordClean = fastClean(word);
             if (!updatedList.some(v => fastClean(v.text) === wordClean)) {
                 const originalItem = currentPracticeItems.find(i => fastClean(i.text) === wordClean);
                 if (originalItem) {
                     const level = isCorrect ? 1 : 0;
-                    updatedList.unshift({
-                        ...originalItem,
-                        text: wordClean,
-                        addedAt: now,
-                        lastReviewed: now,
-                        nextReviewAt: now + getNextReviewInterval(level),
-                        masteryLevel: level,
-                        saved: true
-                    } as VocabularyItem);
+                    updatedList.unshift({ ...originalItem, text: wordClean, addedAt: now, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(level), masteryLevel: level, saved: true } as VocabularyItem);
                 }
             }
         });
-
         return updatedList;
     });
+
     setMode('dashboard');
   };
 
@@ -214,15 +253,10 @@ const App: React.FC = () => {
            <div className="h-full overflow-y-auto p-4 max-w-2xl mx-auto flex flex-col">
               <h2 className="text-2xl font-bold text-white mb-6">今日计划</h2>
               <div className="grid grid-cols-2 gap-3 mb-8">
-                  <button onClick={startDailyPlan} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between overflow-hidden transition-transform active:scale-95">
+                  <button onClick={startDailyPlan} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">
                      <div className="p-3 w-fit rounded-2xl bg-slate-800 text-slate-400">
                         {isGenerating === 'study' ? <Loader2 className="animate-spin" size={24} /> : <Book size={24} />}
                      </div>
-                     {dailyStats.itemsLearned > 0 && (
-                        <div className="absolute top-4 right-4 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-emerald-500/20">
-                           今日 +{dailyStats.itemsLearned}
-                        </div>
-                     )}
                      <div className="text-lg font-bold text-slate-100">新词学习</div>
                   </button>
                   <button onClick={initConversation} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">
@@ -231,9 +265,9 @@ const App: React.FC = () => {
                      </div>
                      <div className="text-lg font-bold text-slate-100">情境对话</div>
                   </button>
-                  <button onClick={startTodayPractice} disabled={!!isGenerating} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">
+                  <button onClick={startTodayPractice} disabled={!!isGenerating && !localStorage.getItem(CACHE_KEY)} className="aspect-square text-left p-4 rounded-3xl bg-slate-900 border border-slate-800 relative flex flex-col justify-between transition-transform active:scale-95">
                      <div className="p-3 w-fit rounded-2xl bg-orange-500/10 text-orange-400">
-                        {isGenerating === 'exercise' ? <Loader2 className="animate-spin" size={24} /> : <Shuffle size={24} />}
+                        {isGenerating === 'exercise' && !localStorage.getItem(CACHE_KEY) ? <Loader2 className="animate-spin" size={24} /> : <Shuffle size={24} />}
                      </div>
                      {overdueItems.length > 0 && (
                         <div className="absolute top-4 right-4 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-orange-500/30 animate-pulse">
@@ -251,11 +285,18 @@ const App: React.FC = () => {
         )}
 
         {mode === 'study' && <StudySession items={todaysItems} initialIndex={studyIndex} onProgress={setStudyIndex} onComplete={handleStudyComplete} onBack={() => setMode('dashboard')} />}
-        {mode === 'exercise' && <PracticeSession exercises={practiceExercises} onBack={() => setMode('dashboard')} onComplete={handleExerciseComplete} />}
+        {mode === 'exercise' && (
+            <PracticeSession 
+                exercises={practiceExercises} 
+                onBack={() => setMode('dashboard')} 
+                onComplete={handleExerciseComplete} 
+                onSecondQuestionReached={() => prefetchExercises(vocabList, currentPracticeItems)}
+            />
+        )}
         {mode === 'live' && <ConversationMode session={activeSession!} onUpdate={setValues} onEndSession={() => setMode('dashboard')} onBack={() => setMode('dashboard')} onSaveVocab={() => {}} />}
         {mode === 'shadowing' && <ShadowingMode onBack={() => setMode('dashboard')} />}
 
-        <SettingsModal show={showSettings} onClose={() => setShowSettings(false)} vocabList={vocabList} dailyStats={dailyStats} onRestore={d => setVocabList(d.vocabList)} totalRepoCount={getTotalLocalItemsCount()} />
+        <SettingsModal show={showSettings} onClose={() => setShowSettings(false)} vocabList={vocabList} dailyStats={dailyStats} onRestore={d => { setVocabList(d.vocabList); localStorage.removeItem(CACHE_KEY); }} totalRepoCount={getTotalLocalItemsCount()} />
       </main>
     </div>
   );

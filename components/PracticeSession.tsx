@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
 import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart } from 'lucide-react';
 import { getPreferredVoice } from '../services/audioUtils';
@@ -8,9 +8,10 @@ interface PracticeSessionProps {
   exercises: PracticeExercise[];
   onComplete: (results: {word: string, isCorrect: boolean}[]) => void;
   onBack: () => void;
+  onSecondQuestionReached?: () => void; // 新增：到达第二题的回调
 }
 
-export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onComplete, onBack }) => {
+export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onComplete, onBack, onSecondQuestionReached }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<(string | null)[]>([]);
   const [shuffledOptions, setShuffledOptions] = useState<string[]>([]);
@@ -19,6 +20,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
   
+  // 记录是否已经触发过预取
+  const triggeredPrefetchRef = useRef(false);
+
   // 记录所有练习过的单词及其最终正误 (Map<单词拼写, 是否正确>)
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
   
@@ -52,7 +56,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         setIsCorrect(null);
         setShowExplanation(false);
     }
-  }, [currentExercise]);
+    
+    // 核心改进：当进行到第二题时，触发父组件的预加载逻辑
+    if (currentIndex === 1 && !triggeredPrefetchRef.current && onSecondQuestionReached) {
+        onSecondQuestionReached();
+        triggeredPrefetchRef.current = true;
+    }
+  }, [currentIndex, currentExercise, onSecondQuestionReached]);
 
   const normalize = (str: string | null) => {
     if (!str) return "";
@@ -79,7 +89,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const checkAnswer = () => {
-    // 整体对错判断（用于 UI 显示：如果全对显示绿色勾，错一个就显示红色叉）
     const overallCorrect = userAnswers.every((ans, i) => 
         normalize(ans) === normalize(currentExercise.correctAnswers[i])
     );
@@ -87,7 +96,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     setIsCorrect(overallCorrect);
     setShowExplanation(true);
     
-    // 精准结果记录：遍历每个单词，根据其对应位置的回答是否正确来记录
     setSessionResults(prev => {
         const next = new Map(prev);
         currentExercise.targetWords.forEach((word, i) => {
@@ -217,7 +225,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                             </button>
                         </div>
                         
-                        <div className="flex flex-wrap gap-2 mb-4">
+                        <div className="flex wrap gap-2 mb-4">
                             {currentExercise?.targetWords?.map((word, idx) => {
                                 const level = vocabMap.get(word.toLowerCase()) || 0;
                                 return (
