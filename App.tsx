@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise, BackupData } from './types';
+import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise } from './types';
 import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises } from './services/contentGen';
 import { getTotalLocalItemsCount } from './services/localRepository';
 import { StudySession } from './components/StudySession';
@@ -62,6 +62,9 @@ const App: React.FC = () => {
 
   const overdueItems = vocabList.filter(v => v.nextReviewAt <= Date.now());
 
+  /**
+   * 核心逻辑提取：选择单词并调用 AI 生成练习题
+   */
   const fetchNewExercises = async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
     const excludeTexts = new Set(excludeItems.map(i => fastClean(i.text)));
     const filteredVocab = currentVocab.filter(v => !excludeTexts.has(fastClean(v.text)));
@@ -88,20 +91,26 @@ const App: React.FC = () => {
     return { exercises, items: finalSelection };
   };
 
+  /**
+   * 预加载函数：在后台生成题目并存入缓存
+   */
   const prefetchExercises = useCallback(async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) return; 
 
+    console.log("正在后台预加载下一轮练习题...");
     try {
         const result = await fetchNewExercises(currentVocab, excludeItems);
         if (result && result.exercises.length > 0) {
             localStorage.setItem(CACHE_KEY, JSON.stringify(result));
+            console.log("后台预加载成功！");
         }
     } catch (e) {
         console.warn("后台预加载失败", e);
     }
   }, []);
 
+  // Dashboard 加载时的自动预加载
   useEffect(() => {
     if (mode === 'dashboard' && overdueItems.length > 0) {
         prefetchExercises(vocabList);
@@ -119,6 +128,7 @@ const App: React.FC = () => {
   };
 
   const startTodayPractice = async () => {
+    // 优先使用缓存
     const cachedData = localStorage.getItem(CACHE_KEY);
     if (cachedData) {
         try {
@@ -138,7 +148,10 @@ const App: React.FC = () => {
     setIsGenerating('exercise');
     try {
       let result = await fetchNewExercises(vocabList);
+      
+      // 如果没有需要复习的单词，随机从词库抽取3个新词
       if (!result || result.exercises.length === 0) {
+        console.log("没有待复习单词，正在获取3个新词进行巩固...");
         const newItems = await generateDailyContent(3, vocabList);
         if (newItems.length > 0) {
           const exercises = await generatePracticeExercises(newItems);
@@ -180,12 +193,14 @@ const App: React.FC = () => {
 
   const handleExerciseComplete = (results: {word: string, isCorrect: boolean}[]) => {
     const now = Date.now();
+    
     setVocabList(prevList => {
         const resultMap = new Map(results.map(r => [fastClean(r.word), r.isCorrect]));
         const updatedList = prevList.map(item => {
             const itemClean = fastClean(item.text);
             let isMatched = false;
             let isCorrect = false;
+
             for (const [resWord, correct] of resultMap.entries()) {
                 if (resWord === itemClean || (itemClean.length > 3 && resWord.includes(itemClean)) || (resWord.length > 3 && itemClean.includes(resWord))) {
                     isMatched = true;
@@ -193,6 +208,7 @@ const App: React.FC = () => {
                     break;
                 }
             }
+
             if (isMatched) {
                 const currentLevel = item.masteryLevel || 0;
                 const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
@@ -200,6 +216,7 @@ const App: React.FC = () => {
             }
             return item;
         });
+
         results.forEach(({ word, isCorrect }) => {
             const wordClean = fastClean(word);
             if (!updatedList.some(v => fastClean(v.text) === wordClean)) {
@@ -212,17 +229,8 @@ const App: React.FC = () => {
         });
         return updatedList;
     });
-    setMode('dashboard');
-  };
 
-  const handleRestore = (data: BackupData) => {
-    // 深度重置所有关键状态
-    if (data.vocabList) setVocabList(data.vocabList);
-    if (data.dailyStats) setDailyStats(data.dailyStats);
-    
-    // 强制清除旧的练习缓存，防止题目和词库不匹配
-    localStorage.removeItem(CACHE_KEY);
-    console.log("数据已成功从备份恢复");
+    setMode('dashboard');
   };
 
   const initConversation = async () => {
@@ -296,14 +304,7 @@ const App: React.FC = () => {
         {mode === 'live' && <ConversationMode session={activeSession!} onUpdate={setValues} onEndSession={() => setMode('dashboard')} onBack={() => setMode('dashboard')} onSaveVocab={() => {}} />}
         {mode === 'shadowing' && <ShadowingMode onBack={() => setMode('dashboard')} />}
 
-        <SettingsModal 
-          show={showSettings} 
-          onClose={() => setShowSettings(false)} 
-          vocabList={vocabList} 
-          dailyStats={dailyStats} 
-          onRestore={handleRestore} 
-          totalRepoCount={getTotalLocalItemsCount()} 
-        />
+        <SettingsModal show={showSettings} onClose={() => setShowSettings(false)} vocabList={vocabList} dailyStats={dailyStats} onRestore={d => { setVocabList(d.vocabList); localStorage.removeItem(CACHE_KEY); }} totalRepoCount={getTotalLocalItemsCount()} />
       </main>
     </div>
   );

@@ -1,13 +1,12 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise, VocabularyItem } from "../types";
 import { getLocalContent } from "./localRepository";
 
 // Using models according to the coding guidelines
-const GENERAL_MODEL_NAME = "gemini-3-flash-preview"; 
+const GENERAL_MODEL_NAME = "gemini-flash-lite-latest"; 
 const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
-const CONVERSATION_MODEL_NAME = "gemini-3-flash-preview"; 
-const PRACTICE_MODEL_NAME = "gemini-3-flash-preview"; 
+const CONVERSATION_MODEL_NAME = "gemini-flash-lite-latest"; 
+const PRACTICE_MODEL_NAME = "gemini-flash-lite-latest"; 
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";
@@ -24,7 +23,6 @@ function getGeminiClient() {
 /**
  * Generates daily study items by fetching from local repository.
  */
-// Fix: Added missing exported member 'generateDailyContent'
 export async function generateDailyContent(count: number, existingVocab: VocabularyItem[]): Promise<StudyItem[]> {
   const existingTexts = new Set(existingVocab.map(v => v.text.toLowerCase()));
   return getLocalContent(count, existingTexts);
@@ -33,7 +31,6 @@ export async function generateDailyContent(count: number, existingVocab: Vocabul
 /**
  * Generates an initial conversation topic using Gemini.
  */
-// Fix: Added missing exported member 'generateInitialTopic'
 export async function generateInitialTopic(): Promise<string> {
   const ai = getGeminiClient();
   if (!ai) return "Let's talk about your daily routine.";
@@ -49,7 +46,6 @@ export async function generateInitialTopic(): Promise<string> {
 /**
  * Generates a conversation topic based on specific vocabulary words.
  */
-// Fix: Added missing exported member 'generateTopicFromVocab'
 export async function generateTopicFromVocab(vocab: VocabularyItem[]): Promise<string> {
   const ai = getGeminiClient();
   if (!ai) return "Let's practice some new vocabulary.";
@@ -66,7 +62,6 @@ export async function generateTopicFromVocab(vocab: VocabularyItem[]): Promise<s
 /**
  * Generates a daily inspiring quote with translation and source.
  */
-// Fix: Added missing exported member 'generateDailyQuote'
 export async function generateDailyQuote(): Promise<DailyQuoteItem> {
   const ai = getGeminiClient();
   if (!ai) return { english: "Stay hungry, stay foolish.", chinese: "求知若饥，虚心若愚。", source: "Steve Jobs" };
@@ -98,7 +93,6 @@ export async function generateDailyQuote(): Promise<DailyQuoteItem> {
 /**
  * Generates high-quality speech using Gemini TTS model.
  */
-// Fix: Added missing exported member 'generateSpeech'
 export async function generateSpeech(text: string): Promise<string | undefined> {
   const ai = getGeminiClient();
   if (!ai) return undefined;
@@ -210,6 +204,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   1. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
   2. The "correctAnswers" must be a list of the 3 words in order.
   3. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+  4. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
   
   Output JSON format: {"exercises": [...]}`;
 
@@ -222,7 +217,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
-        { role: "system", content: "You are a professional English tutor that only outputs JSON." },
+        { role: "system", content: "You are a professional English tutor that only outputs JSON. You provide detailed linguistic explanations in Chinese." },
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
@@ -255,14 +250,15 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   - "targetWords": The 3 words provided.
   - "correctAnswers": The 3 words in correct order.
   - "options": The 3 correct words plus 4-6 distractors (total 8-10 individual strings).
-  - "sentenceZh": Chinese translation of the full sentence.`;
+  - "sentenceZh": Chinese translation of the full sentence.
+  - "explanation": A detailed, clear explanation of how the 3 target words function in the sentence, written entirely in CHINESE (中文).`;
 
   try {
     const response = await ai.models.generateContent({
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
-        systemInstruction: "You are a specialized JSON generator for English learning exercises. Always return a valid JSON array of objects.",
+        systemInstruction: "You are a professional English tutor and specialized JSON generator for English learning exercises. You provide helpful, natural linguistic analysis in Chinese. Always return a valid JSON array of objects.",
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
@@ -276,9 +272,9 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
               quizQuestion: { type: Type.STRING, description: "Sentence with exactly three '____' placeholders" },
               options: { type: Type.ARRAY, items: { type: Type.STRING } },
               correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
-              explanation: { type: Type.STRING }
+              explanation: { type: Type.STRING, description: "Detailed linguistic explanation in Chinese" }
             },
-            required: ["targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers"]
+            required: ["targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers", "explanation"]
           }
         } 
       }
@@ -318,7 +314,6 @@ export async function analyzeAudioResponse(audioBase64: string, currentTopic: st
 /**
  * Evaluates pronunciation accuracy of a specific text.
  */
-// Fix: Completed cut-off evaluatePronunciation function
 export async function evaluatePronunciation(audioBase64: string, targetText: string): Promise<{ score: number; feedback: string }> {
   const ai = getGeminiClient();
   if (!ai) return { score: 0, feedback: "API Key Missing" };
