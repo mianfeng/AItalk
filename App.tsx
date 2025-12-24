@@ -8,7 +8,7 @@ import { ConversationMode } from './components/ConversationMode';
 import { ShadowingMode } from './components/ShadowingMode';
 import { PracticeSession } from './components/PracticeSession';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, TrendingUp, Activity } from 'lucide-react';
+import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, Activity } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'shadowing' | 'exercise';
 
@@ -50,22 +50,28 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
         return last7Days.map(date => history[date] || { itemsLearned: 0, itemsReviewed: 0 });
     }, [history, last7Days]);
 
-    const maxVal = Math.max(...data.map(d => Math.max(d.itemsLearned, d.itemsReviewed, 5)));
+    // 独立缩放逻辑
+    const maxL = Math.max(...data.map(d => d.itemsLearned), 5);
+    const maxR = Math.max(...data.map(d => d.itemsReviewed), 20);
     
-    const getPoints = (key: 'itemsLearned' | 'itemsReviewed') => {
-        return data.map((d, i) => {
-            const x = (i / 6) * 100;
-            const y = 100 - (d[key] / maxVal) * 80; // Leave 20% top padding
-            return `${x},${y}`;
-        }).join(' ');
-    };
+    // 图表画布尺寸：400 x 160
+    const padding = { top: 40, bottom: 30, left: 30, right: 30 };
+    const chartWidth = 400 - padding.left - padding.right;
+    const chartHeight = 160 - padding.top - padding.bottom;
+
+    const getX = (index: number) => padding.left + (index / 6) * chartWidth;
+    const getYL = (val: number) => padding.top + chartHeight - (val / maxL) * chartHeight;
+    const getYR = (val: number) => padding.top + chartHeight - (val / maxR) * chartHeight;
+
+    const learnedPoints = data.map((d, i) => `${getX(i)},${getYL(d.itemsLearned)}`).join(' ');
+    const reviewedPoints = data.map((d, i) => `${getX(i)},${getYR(d.itemsReviewed)}`).join(' ');
 
     return (
         <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-5 mt-4">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                     <div className="bg-emerald-500/10 p-1.5 rounded-lg"><Activity className="text-emerald-500" size={16} /></div>
-                    <span className="text-sm font-bold text-slate-200">学习趋势</span>
+                    <span className="text-sm font-bold text-slate-200">学习活动</span>
                 </div>
                 <div className="flex gap-4">
                     <div className="flex items-center gap-1.5">
@@ -79,25 +85,50 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
                 </div>
             </div>
             
-            <div className="h-24 w-full relative group">
-                <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
+            <div className="w-full">
+                <svg viewBox="0 0 400 160" className="w-full h-auto overflow-visible">
                     {/* Grid lines */}
-                    {[0, 25, 50, 75, 100].map(y => (
-                        <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="white" strokeOpacity="0.03" strokeWidth="0.5" />
+                    {[0, 0.25, 0.5, 0.75, 1].map(v => {
+                        const y = padding.top + v * chartHeight;
+                        return <line key={v} x1={padding.left} y1={y} x2={400 - padding.right} y2={y} stroke="white" strokeOpacity="0.04" strokeWidth="1" />;
+                    })}
+                    
+                    {/* Reviewed Line (Background) */}
+                    <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={reviewedPoints} className="opacity-60" />
+                    
+                    {/* Learned Line (Foreground) */}
+                    <polyline fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={learnedPoints} />
+                    
+                    {/* Data Nodes & Labels */}
+                    {data.map((d, i) => {
+                        const x = getX(i);
+                        const ly = getYL(d.itemsLearned);
+                        const ry = getYR(d.itemsReviewed);
+                        
+                        return (
+                            <g key={i}>
+                                {/* Review Dot & Label */}
+                                <circle cx={x} cy={ry} r="3" fill="#f97316" className="drop-shadow-[0_0_4px_rgba(249,115,22,0.4)]" />
+                                <text x={x} y={ry - 10} fontSize="10" textAnchor="middle" fill="#fb923c" fontWeight="bold" className="font-mono select-none">
+                                    {d.itemsReviewed > 0 ? d.itemsReviewed : ''}
+                                </text>
+                                
+                                {/* Learned Dot & Label */}
+                                <circle cx={x} cy={ly} r="3" fill="#10b981" className="drop-shadow-[0_0_4px_rgba(16,185,129,0.4)]" />
+                                <text x={x} y={ly + 18} fontSize="10" textAnchor="middle" fill="#34d399" fontWeight="bold" className="font-mono select-none">
+                                    {d.itemsLearned > 0 ? d.itemsLearned : ''}
+                                </text>
+                            </g>
+                        );
+                    })}
+                    
+                    {/* X-Axis Dates */}
+                    {last7Days.map((date, i) => (
+                        <text key={date} x={getX(i)} y={160 - 5} fontSize="9" textAnchor="middle" fill="#475569" fontWeight="600" className="font-mono uppercase">
+                            {i === 6 ? '今日' : date.split(' ')[1] + ' ' + date.split(' ')[2]}
+                        </text>
                     ))}
-                    {/* Learned Line */}
-                    <polyline fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={getPoints('itemsLearned')} className="drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
-                    {/* Reviewed Line */}
-                    <polyline fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={getPoints('itemsReviewed')} className="drop-shadow-[0_0_8px_rgba(249,115,22,0.3)]" />
                 </svg>
-            </div>
-            
-            <div className="flex justify-between mt-4">
-                {last7Days.map((date, i) => (
-                    <div key={date} className="flex flex-col items-center">
-                        <span className="text-[8px] text-slate-600 font-mono uppercase">{i === 6 ? '今日' : date.split(' ')[1] + ' ' + date.split(' ')[2]}</span>
-                    </div>
-                ))}
             </div>
         </div>
     );
@@ -129,7 +160,7 @@ const App: React.FC = () => {
       const updatedHistory = { ...statsHistory, [todayStr]: dailyStats };
       setStatsHistory(updatedHistory);
       localStorage.setItem(STATS_HISTORY_KEY, JSON.stringify(updatedHistory));
-  }, [dailyStats]);
+  }, [dailyStats, todayStr]);
 
   const overdueItems = vocabList.filter(v => v.nextReviewAt <= Date.now());
 
