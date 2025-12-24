@@ -36,7 +36,12 @@ export interface VocabularyItem extends StudyItem {
 export interface DailyStats {
   date: string;
   itemsLearned: number;
+  itemsReviewed: number;
   completedSpeaking: boolean;
+}
+
+export interface StatsHistory {
+  [date: string]: DailyStats;
 }
 
 export interface SessionResult {

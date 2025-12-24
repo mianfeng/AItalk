@@ -225,16 +225,19 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                             </button>
                         </div>
                         
-                        <div className="flex wrap gap-2 mb-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
                             {currentExercise?.targetWords?.map((word, idx) => {
                                 const level = vocabMap.get(word.toLowerCase()) || 0;
                                 return (
-                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
-                                        <div className="flex items-center gap-1 scale-90 opacity-80">
-                                            <BarChart size={10} />
-                                            <span className="text-[9px] font-bold">Lv{level}</span>
+                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-2.5 rounded-xl border text-xs font-medium flex items-center justify-between transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1 scale-90 opacity-80">
+                                                <BarChart size={10} />
+                                                <span className="text-[9px] font-bold">Lv{level}</span>
+                                            </div>
+                                            <span className="truncate max-w-[80px]">{word}</span>
                                         </div>
-                                        {word} <Volume2 size={12} className={playingWord === word ? 'animate-pulse' : ''} />
+                                        <Volume2 size={12} className={playingWord === word ? 'animate-pulse' : ''} />
                                     </button>
                                 );
                             })}

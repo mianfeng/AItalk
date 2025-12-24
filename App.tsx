@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise } from './types';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise, StatsHistory } from './types';
 import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises } from './services/contentGen';
 import { getTotalLocalItemsCount } from './services/localRepository';
 import { StudySession } from './components/StudySession';
@@ -8,11 +8,12 @@ import { ConversationMode } from './components/ConversationMode';
 import { ShadowingMode } from './components/ShadowingMode';
 import { PracticeSession } from './components/PracticeSession';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2 } from 'lucide-react';
+import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, TrendingUp, Activity } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'shadowing' | 'exercise';
 
 const CACHE_KEY = 'lingua_cached_exercises';
+const STATS_HISTORY_KEY = 'lingua_stats_history';
 
 const fastClean = (text: string) => {
     if (!text) return "";
@@ -34,6 +35,74 @@ const getNextReviewInterval = (level: number): number => {
   }
 };
 
+const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
+    const last7Days = useMemo(() => {
+        const dates = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            dates.push(d.toDateString());
+        }
+        return dates;
+    }, []);
+
+    const data = useMemo(() => {
+        return last7Days.map(date => history[date] || { itemsLearned: 0, itemsReviewed: 0 });
+    }, [history, last7Days]);
+
+    const maxVal = Math.max(...data.map(d => Math.max(d.itemsLearned, d.itemsReviewed, 5)));
+    
+    const getPoints = (key: 'itemsLearned' | 'itemsReviewed') => {
+        return data.map((d, i) => {
+            const x = (i / 6) * 100;
+            const y = 100 - (d[key] / maxVal) * 80; // Leave 20% top padding
+            return `${x},${y}`;
+        }).join(' ');
+    };
+
+    return (
+        <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-5 mt-4">
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                    <div className="bg-emerald-500/10 p-1.5 rounded-lg"><Activity className="text-emerald-500" size={16} /></div>
+                    <span className="text-sm font-bold text-slate-200">学习趋势</span>
+                </div>
+                <div className="flex gap-4">
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                        <span className="text-[10px] text-slate-500 font-medium">新词</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                        <span className="text-[10px] text-slate-500 font-medium">复习</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="h-24 w-full relative group">
+                <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
+                    {/* Grid lines */}
+                    {[0, 25, 50, 75, 100].map(y => (
+                        <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="white" strokeOpacity="0.03" strokeWidth="0.5" />
+                    ))}
+                    {/* Learned Line */}
+                    <polyline fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={getPoints('itemsLearned')} className="drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
+                    {/* Reviewed Line */}
+                    <polyline fill="none" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" points={getPoints('itemsReviewed')} className="drop-shadow-[0_0_8px_rgba(249,115,22,0.3)]" />
+                </svg>
+            </div>
+            
+            <div className="flex justify-between mt-4">
+                {last7Days.map((date, i) => (
+                    <div key={date} className="flex flex-col items-center">
+                        <span className="text-[8px] text-slate-600 font-mono uppercase">{i === 6 ? '今日' : date.split(' ')[1] + ' ' + date.split(' ')[2]}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('dashboard');
   const [showSettings, setShowSettings] = useState(false);
@@ -41,30 +110,29 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('lingua_vocab');
     return saved ? JSON.parse(saved) : [];
   });
-  const [dailyStats, setDailyStats] = useState<DailyStats>(() => {
-    const today = new Date().toDateString();
-    const saved = localStorage.getItem('lingua_stats');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.date === today) return parsed;
-    }
-    return { date: today, itemsLearned: 0, completedSpeaking: false };
+  
+  const [statsHistory, setStatsHistory] = useState<StatsHistory>(() => {
+      const saved = localStorage.getItem(STATS_HISTORY_KEY);
+      return saved ? JSON.parse(saved) : {};
   });
-  const [activeSession, setValues] = useState<ConversationSession | null>(null);
-  const [todaysItems, setTodaysItems] = useState<StudyItem[]>([]);
-  const [practiceExercises, setPracticeExercises] = useState<PracticeExercise[]>([]);
-  const [currentPracticeItems, setCurrentPracticeItems] = useState<StudyItem[]>([]);
-  const [studyIndex, setStudyIndex] = useState(0); 
-  const [isGenerating, setIsGenerating] = useState<string | null>(null);
+
+  const todayStr = new Date().toDateString();
+
+  const [dailyStats, setDailyStats] = useState<DailyStats>(() => {
+    if (statsHistory[todayStr]) return statsHistory[todayStr];
+    return { date: todayStr, itemsLearned: 0, itemsReviewed: 0, completedSpeaking: false };
+  });
 
   useEffect(() => { localStorage.setItem('lingua_vocab', JSON.stringify(vocabList)); }, [vocabList]);
-  useEffect(() => { localStorage.setItem('lingua_stats', JSON.stringify(dailyStats)); }, [dailyStats]);
+  
+  useEffect(() => { 
+      const updatedHistory = { ...statsHistory, [todayStr]: dailyStats };
+      setStatsHistory(updatedHistory);
+      localStorage.setItem(STATS_HISTORY_KEY, JSON.stringify(updatedHistory));
+  }, [dailyStats]);
 
   const overdueItems = vocabList.filter(v => v.nextReviewAt <= Date.now());
 
-  /**
-   * 核心逻辑提取：选择单词并调用 AI 生成练习题
-   */
   const fetchNewExercises = async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
     const excludeTexts = new Set(excludeItems.map(i => fastClean(i.text)));
     const filteredVocab = currentVocab.filter(v => !excludeTexts.has(fastClean(v.text)));
@@ -91,26 +159,20 @@ const App: React.FC = () => {
     return { exercises, items: finalSelection };
   };
 
-  /**
-   * 预加载函数：在后台生成题目并存入缓存
-   */
   const prefetchExercises = useCallback(async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) return; 
 
-    console.log("正在后台预加载下一轮练习题...");
     try {
         const result = await fetchNewExercises(currentVocab, excludeItems);
         if (result && result.exercises.length > 0) {
             localStorage.setItem(CACHE_KEY, JSON.stringify(result));
-            console.log("后台预加载成功！");
         }
     } catch (e) {
         console.warn("后台预加载失败", e);
     }
   }, []);
 
-  // Dashboard 加载时的自动预加载
   useEffect(() => {
     if (mode === 'dashboard' && overdueItems.length > 0) {
         prefetchExercises(vocabList);
@@ -128,7 +190,6 @@ const App: React.FC = () => {
   };
 
   const startTodayPractice = async () => {
-    // 优先使用缓存
     const cachedData = localStorage.getItem(CACHE_KEY);
     if (cachedData) {
         try {
@@ -148,10 +209,7 @@ const App: React.FC = () => {
     setIsGenerating('exercise');
     try {
       let result = await fetchNewExercises(vocabList);
-      
-      // 如果没有需要复习的单词，随机从词库抽取3个新词
       if (!result || result.exercises.length === 0) {
-        console.log("没有待复习单词，正在获取3个新词进行巩固...");
         const newItems = await generateDailyContent(3, vocabList);
         if (newItems.length > 0) {
           const exercises = await generatePracticeExercises(newItems);
@@ -230,6 +288,7 @@ const App: React.FC = () => {
         return updatedList;
     });
 
+    setDailyStats(prev => ({ ...prev, itemsReviewed: prev.itemsReviewed + results.length }));
     setMode('dashboard');
   };
 
@@ -242,6 +301,13 @@ const App: React.FC = () => {
           setMode('live');
       } catch (e) { alert("启动对话失败"); } finally { setIsGenerating(null); }
   };
+
+  const [todaysItems, setTodaysItems] = useState<StudyItem[]>([]);
+  const [practiceExercises, setPracticeExercises] = useState<PracticeExercise[]>([]);
+  const [currentPracticeItems, setCurrentPracticeItems] = useState<StudyItem[]>([]);
+  const [studyIndex, setStudyIndex] = useState(0); 
+  const [isGenerating, setIsGenerating] = useState<string | null>(null);
+  const [activeSession, setValues] = useState<ConversationSession | null>(null);
 
   return (
     <div className="flex flex-col h-[100dvh] bg-slate-950 text-slate-200 overflow-hidden font-sans">
@@ -295,6 +361,20 @@ const App: React.FC = () => {
                      <div className="text-lg font-bold text-slate-100">跟读挑战</div>
                   </button>
               </div>
+
+              <h2 className="text-2xl font-bold text-white mb-4">学习进度</h2>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">今日新词</div>
+                      <div className="text-2xl font-mono font-bold text-emerald-500">{dailyStats.itemsLearned}</div>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">今日复习</div>
+                      <div className="text-2xl font-mono font-bold text-orange-500">{dailyStats.itemsReviewed}</div>
+                  </div>
+              </div>
+              <ActivityChart history={statsHistory} />
+              <div className="h-10 shrink-0" />
            </div>
         )}
 
