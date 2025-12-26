@@ -1,5 +1,20 @@
 
 /**
+ * 清理文本以适配 TTS 引擎，特别是移动端
+ * 1. 去除连续空格和换行
+ * 2. 规范标点符号后的空格
+ * 3. 移除特殊的练习占位符
+ */
+export function sanitizeForTTS(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/_{2,}/g, ' ') // 将 ____ 替换为空格，避免引擎读出"下划线"
+    .replace(/\s+/g, ' ')   // 合并连续空格
+    .replace(/([,.;!?])([^\s])/g, '$1 $2') // 确保标点后有且只有一个空格
+    .trim();
+}
+
+/**
  * Decodes base64 string to raw bytes.
  */
 export function decode(base64: string): Uint8Array {

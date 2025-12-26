@@ -1,12 +1,13 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise, VocabularyItem } from "../types";
 import { getLocalContent } from "./localRepository";
 
-// Using models according to the coding guidelines
-const GENERAL_MODEL_NAME = "gemini-flash-lite-latest"; 
+// Using correct model identifiers based on official mapping
+const GENERAL_MODEL_NAME = "gemini-flash-latest"; 
 const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
-const CONVERSATION_MODEL_NAME = "gemini-flash-lite-latest"; 
-const PRACTICE_MODEL_NAME = "gemini-flash-lite-latest"; 
+const CONVERSATION_MODEL_NAME = "gemini-flash-latest"; 
+const PRACTICE_MODEL_NAME = "gemini-flash-latest"; 
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";

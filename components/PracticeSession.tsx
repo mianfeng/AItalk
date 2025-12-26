@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
 import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart } from 'lucide-react';
-import { getPreferredVoice } from '../services/audioUtils';
+import { getPreferredVoice, sanitizeForTTS } from '../services/audioUtils';
 
 interface PracticeSessionProps {
   exercises: PracticeExercise[];
   onComplete: (results: {word: string, isCorrect: boolean}[]) => void;
   onBack: () => void;
-  onSecondQuestionReached?: () => void; // 新增：到达第二题的回调
+  onSecondQuestionReached?: () => void; 
 }
 
 export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onComplete, onBack, onSecondQuestionReached }) => {
@@ -20,12 +20,8 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
   
-  // 记录是否已经触发过预取
   const triggeredPrefetchRef = useRef(false);
-
-  // 记录所有练习过的单词及其最终正误 (Map<单词拼写, 是否正确>)
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
-  
   const [isFinished, setIsFinished] = useState(false);
   const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
 
@@ -57,7 +53,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         setShowExplanation(false);
     }
     
-    // 核心改进：当进行到第二题时，触发父组件的预加载逻辑
     if (currentIndex === 1 && !triggeredPrefetchRef.current && onSecondQuestionReached) {
         onSecondQuestionReached();
         triggeredPrefetchRef.current = true;
@@ -116,14 +111,43 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   const playTTS = (text: string, isFullSentence = false) => {
     if (!text) return;
-    if (isFullSentence) { if (isPlaying) return; setIsPlaying(true); } else { setPlayingWord(text); }
+    
+    // 移动端优化：文本清洗
+    const cleanText = sanitizeForTTS(text);
+
+    if (isFullSentence) { 
+        if (isPlaying) return; 
+        setIsPlaying(true); 
+    } else { 
+        setPlayingWord(text); 
+    }
+
+    // 移动端优化：先停止当前所有发音
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    if (preferredVoice) utterance.voice = preferredVoice;
-    utterance.onend = () => { if (isFullSentence) setIsPlaying(false); else setPlayingWord(null); };
-    utterance.onerror = () => { if (isFullSentence) setIsPlaying(false); else setPlayingWord(null); };
-    window.speechSynthesis.speak(utterance);
+    
+    // 移动端优化：增加极小延迟，防止某些 Android 浏览器状态未重置
+    setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = 'en-US';
+        
+        // 移动端默认略微降低语速，以增强清晰度
+        utterance.rate = isFullSentence ? 0.9 : 1.0;
+        
+        if (preferredVoice) {
+            utterance.voice = preferredVoice;
+        }
+        
+        utterance.onend = () => { 
+            if (isFullSentence) setIsPlaying(false); 
+            else setPlayingWord(null); 
+        };
+        utterance.onerror = () => { 
+            if (isFullSentence) setIsPlaying(false); 
+            else setPlayingWord(null); 
+        };
+        
+        window.speechSynthesis.speak(utterance);
+    }, 50);
   };
 
   const renderSentenceWithSlots = () => {
