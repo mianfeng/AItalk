@@ -154,27 +154,29 @@ function sanitizeExercises(exercises: any[]): PracticeExercise[] {
  * Generates practice exercises from study items.
  */
 export async function generatePracticeExercises(items: StudyItem[]): Promise<PracticeExercise[]> {
-  if (!items || items.length < 3) return [];
+  let rawExercises: any[] = [];
   
   try {
     const client = getGeminiClient();
     if (client) {
-        const rawExercises = await generatePracticeExercisesWithGemini(items);
+        rawExercises = await generatePracticeExercisesWithGemini(items);
         if (rawExercises && rawExercises.length > 0) {
             const sanitized = sanitizeExercises(rawExercises);
             if (sanitized.length > 0) {
+                console.log(`成功调用 Google Gemini (${PRACTICE_MODEL_NAME}) - 生成练习`);
                 return sanitized;
             }
         }
     }
   } catch (e) {
-    console.warn("Google Gemini 练习生成失败，尝试备选方案:", e);
+    console.warn("Google Gemini 练习生成失败:", e);
   }
 
   if (DEEPSEEK_API_KEY && DEEPSEEK_API_KEY.length > 5) {
     try {
-        const rawExercises = await generatePracticeExercisesWithDeepSeek(items);
+        rawExercises = await generatePracticeExercisesWithDeepSeek(items);
         if (rawExercises && rawExercises.length > 0) {
+            console.log("成功调用 DeepSeek API - 生成练习 (备选)");
             return sanitizeExercises(rawExercises);
         }
     } catch (e) {
@@ -200,9 +202,10 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   Each group of 3 words must produce ONE exercise.
   
   CRITICAL RULES:
-  1. The "quizQuestion" MUST contain exactly THREE "____" placeholders.
-  2. The "correctAnswers" must be the 3 words in correct order.
-  3. "explanation" MUST be in CHINESE (中文).
+  1. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
+  2. The "correctAnswers" must be a list of the 3 words in order.
+  3. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+  4. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
   
   Output JSON format: {"exercises": [...]}`;
 
@@ -215,7 +218,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
-        { role: "system", content: "You are a professional English tutor that only outputs JSON." },
+        { role: "system", content: "You are a professional English tutor that only outputs JSON. You provide detailed linguistic explanations in Chinese." },
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
@@ -235,25 +238,28 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
 
   const wordGroups: string[] = [];
   for (let i = 0; i < items.length; i += 3) {
-    const group = items.slice(i, i + 3).map(it => `${it.text}(${it.translation})`).join(", ");
+    const group = items.slice(i, i + 3).map(it => `${it.text} (means: ${it.translation})`).join(", ");
     wordGroups.push(group);
   }
 
-  const prompt = `Task: Create fill-in-the-blank English exercises for these word groups: ${JSON.stringify(wordGroups)}.
+  const prompt = `Task: Create fill-in-the-blank English exercises.
+  Data groups: ${JSON.stringify(wordGroups)}.
   
-  Requirements:
-  - For each group, create ONE natural sentence using ALL 3 words.
-  - "quizQuestion": The sentence with "____" replacing each target word.
-  - "options": The 3 correct words + 3-5 distractors.
-  - "explanation": Brief explanation in CHINESE (中文).
-  - Return as a JSON array.`;
+  For each group, create ONE sentence that uses all 3 target words.
+  Requirement:
+  - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
+  - "targetWords": The 3 words provided.
+  - "correctAnswers": The 3 words in correct order.
+  - "options": The 3 correct words plus 4-6 distractors (total 8-10 individual strings).
+  - "sentenceZh": Chinese translation of the full sentence.
+  - "explanation": A detailed, clear explanation of how the 3 target words function in the sentence, written entirely in CHINESE (中文).`;
 
   try {
     const response = await ai.models.generateContent({
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
-        systemInstruction: "You are an English tutor generating JSON exercises. Be concise.",
+        systemInstruction: "You are a professional English tutor and specialized JSON generator for English learning exercises. You provide helpful, natural linguistic analysis in Chinese. Always return a valid JSON array of objects.",
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
@@ -264,10 +270,10 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
               targetWords: { type: Type.ARRAY, items: { type: Type.STRING } },
               sentence: { type: Type.STRING },
               sentenceZh: { type: Type.STRING },
-              quizQuestion: { type: Type.STRING },
+              quizQuestion: { type: Type.STRING, description: "Sentence with exactly three '____' placeholders" },
               options: { type: Type.ARRAY, items: { type: Type.STRING } },
               correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
-              explanation: { type: Type.STRING }
+              explanation: { type: Type.STRING, description: "Detailed linguistic explanation in Chinese" }
             },
             required: ["targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers", "explanation"]
           }
@@ -275,9 +281,12 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
       }
     });
     
-    return JSON.parse(response.text || "[]");
+    const text = response.text;
+    if (!text) return [];
+    return JSON.parse(text);
   } catch (e) {
-    throw e; 
+    console.error("Gemini Content Gen Error:", e);
+    return [];
   }
 }
 

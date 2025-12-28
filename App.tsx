@@ -133,7 +133,7 @@ const App: React.FC = () => {
   });
 
   const todayStr = new Date().toDateString();
-  const prefetchPromiseRef = useRef<Promise<any> | null>(null);
+  const isPrefetchingRef = useRef(false); // 并发控制锁
 
   const [dailyStats, setDailyStats] = useState<DailyStats>(() => {
     if (statsHistory[todayStr]) return statsHistory[todayStr];
@@ -150,13 +150,19 @@ const App: React.FC = () => {
 
   const overdueItems = vocabList.filter(v => v.nextReviewAt <= Date.now());
 
+  /**
+   * 核心复习算法：待复习 -> 已学未到期随机 -> 离线库抽新
+   */
   const fetchNewExercises = async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
+    // 强制使用 ID 排除，防止字符串清洗规则不一致导致的重复
     const excludeIds = new Set(excludeItems.map(i => i.id));
     const filteredVocab = currentVocab.filter(v => !excludeIds.has(v.id));
     
-    // 获取待复习词，如果没有则尝试获取已学词，如果还没则尝试从仓库获取
-    let selected: StudyItem[] = filteredVocab.filter(v => v.nextReviewAt <= Date.now());
+    // 1. 获取待复习
+    const overdue = filteredVocab.filter(v => v.nextReviewAt <= Date.now());
+    let selected: StudyItem[] = [...overdue];
     
+    // 2. 如果不足 30 个，用“已学过但未到期”的填补
     if (selected.length < 30) {
         const learnedNotOverdue = filteredVocab.filter(v => v.nextReviewAt > Date.now());
         const needed = 30 - selected.length;
@@ -164,46 +170,43 @@ const App: React.FC = () => {
         selected = [...selected, ...fillers];
     }
 
-    if (selected.length < 3) {
-        const needed = 3 - selected.length;
+    // 3. 仍然不足 30 个，从离线库抽新词（凑够 3 词一组的要求）
+    if (selected.length < 30) {
+        const needed = 30 - selected.length;
         const newItems = await generateDailyContent(needed, currentVocab);
         selected = [...selected, ...newItems];
     }
     
+    // 确保是 3 的倍数
     const finalCount = Math.floor(selected.length / 3) * 3;
-    const finalSelection = selected.slice(0, Math.min(30, finalCount));
+    const finalSelection = selected.slice(0, finalCount);
     
-    if (finalSelection.length < 3) throw new Error("INSUFFICIENT_VOCAB");
+    if (finalSelection.length < 3) return null;
 
     const exercises = await generatePracticeExercises(finalSelection);
-    if (!exercises || exercises.length === 0) throw new Error("AI_GENERATION_FAILED");
-
     return { exercises, items: finalSelection };
   };
 
   const prefetchExercises = useCallback(async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
-    if (prefetchPromiseRef.current) return prefetchPromiseRef.current;
-    
+    if (isPrefetchingRef.current) return;
     const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) return JSON.parse(cached);
+    if (cached) return; 
 
-    prefetchPromiseRef.current = (async () => {
-        try {
-            const result = await fetchNewExercises(currentVocab, excludeItems);
+    isPrefetchingRef.current = true;
+    try {
+        const result = await fetchNewExercises(currentVocab, excludeItems);
+        if (result && result.exercises.length > 0) {
             localStorage.setItem(CACHE_KEY, JSON.stringify(result));
-            return result;
-        } catch (e) {
-            console.warn("预加载失败", e);
-            return null;
-        } finally {
-            prefetchPromiseRef.current = null;
         }
-    })();
-    
-    return prefetchPromiseRef.current;
+    } catch (e) {
+        console.warn("后台预加载失败", e);
+    } finally {
+        isPrefetchingRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
+    // 回到主页时，如果缓存为空且有待复习，自动触发预加载
     if (mode === 'dashboard' && overdueItems.length > 0) {
         prefetchExercises(vocabList);
     }
@@ -220,47 +223,35 @@ const App: React.FC = () => {
   };
 
   const startTodayPractice = async () => {
-    // 1. 优先尝试从本地缓存读取
     const cachedData = localStorage.getItem(CACHE_KEY);
     if (cachedData) {
         try {
             const parsed = JSON.parse(cachedData);
-            if (parsed.exercises?.length > 0) {
+            if (parsed.exercises && parsed.exercises.length > 0) {
                 setPracticeExercises(parsed.exercises);
                 setCurrentPracticeItems(parsed.items);
                 setMode('exercise');
                 localStorage.removeItem(CACHE_KEY);
                 return;
             }
-        } catch (e) { localStorage.removeItem(CACHE_KEY); }
+        } catch (e) {
+            localStorage.removeItem(CACHE_KEY);
+        }
     }
 
-    // 2. 如果正在进行预加载，则等待预加载完成
     setIsGenerating('exercise');
     try {
-      let result;
-      if (prefetchPromiseRef.current) {
-          result = await prefetchPromiseRef.current;
-      } else {
-          result = await fetchNewExercises(vocabList);
-      }
-
-      if (!result || !result.exercises || result.exercises.length === 0) {
-          throw new Error("EMPTY_RESULT");
+      const result = await fetchNewExercises(vocabList);
+      if (!result || result.exercises.length === 0) { 
+        alert("目前没有待练习内容，去学习点新词吧！");
+        return; 
       }
       
       setPracticeExercises(result.exercises);
       setCurrentPracticeItems(result.items);
       setMode('exercise');
-      localStorage.removeItem(CACHE_KEY);
-    } catch (e: any) {
-      if (e.message === "AI_GENERATION_FAILED" || e.message === "EMPTY_RESULT") {
-          alert("AI 题目生成由于网络原因失败，请点击重试。");
-      } else if (e.message === "INSUFFICIENT_VOCAB") {
-          alert("目前词库为空，请先去学习几个新单词。");
-      } else {
-          alert("生成练习失败，请检查网络连接后重试。");
-      }
+    } catch (e) { 
+      alert("生成练习失败，请稍后重试。"); 
     } finally { 
       setIsGenerating(null); 
     }
@@ -280,7 +271,7 @@ const App: React.FC = () => {
         return newList;
     });
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
-    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(CACHE_KEY); // 数据变动，强制清除旧缓存
     setMode('dashboard'); 
   };
 
@@ -324,7 +315,7 @@ const App: React.FC = () => {
     });
 
     setDailyStats(prev => ({ ...prev, itemsReviewed: prev.itemsReviewed + results.length }));
-    localStorage.removeItem(CACHE_KEY); 
+    localStorage.removeItem(CACHE_KEY); // 任务完成，清除衔接产生的预加载，确保回到主页后能基于最新复习时间重新计算
     setMode('dashboard');
   };
 
