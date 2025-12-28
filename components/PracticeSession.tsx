@@ -19,8 +19,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [showExplanation, setShowExplanation] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
-  const [speechRate, setSpeechRate] = useState(1.0); // 新增语速控制状态
   
+  // Speech Rate State (persisted)
+  const [speechRate, setSpeechRate] = useState<number>(() => {
+    const saved = localStorage.getItem('lingua_practice_rate');
+    return saved ? parseFloat(saved) : 1.0;
+  });
+
   const triggeredPrefetchRef = useRef(false);
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
   const [isFinished, setIsFinished] = useState(false);
@@ -110,13 +115,11 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     }
   };
 
-  const toggleSpeed = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setSpeechRate(prev => {
-          if (prev === 1.0) return 0.8;
-          if (prev === 0.8) return 0.6;
-          return 1.0;
-      });
+  const toggleSpeed = () => {
+    const rates = [1.0, 0.8, 0.6];
+    const nextRate = rates[(rates.indexOf(speechRate) + 1) % rates.length];
+    setSpeechRate(nextRate);
+    localStorage.setItem('lingua_practice_rate', nextRate.toString());
   };
 
   const playTTS = (text: string, isFullSentence = false) => {
@@ -137,7 +140,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = 'en-US';
         
-        // 使用用户选择的语速，单词朗读保持 1.0 语速以保证清晰度
+        // Use user-defined speechRate for sentences
         utterance.rate = isFullSentence ? speechRate : 1.0;
         
         if (preferredVoice) {
@@ -254,13 +257,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                             <div className="flex items-center gap-2">
                                 <button 
                                     onClick={toggleSpeed}
-                                    className="px-2 py-1 rounded-lg bg-slate-800 text-indigo-400 text-[10px] font-mono font-bold border border-slate-700 flex items-center gap-1 hover:bg-slate-700 transition-colors"
-                                    title="切换语速"
+                                    className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-mono font-bold text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+                                    title="调整语速"
                                 >
-                                    <Gauge size={12} /> {speechRate}x
+                                    <Gauge size={12} /> {speechRate.toFixed(1)}x
                                 </button>
                                 <button onClick={() => playTTS(currentExercise?.sentence, true)} className={`p-2 rounded-xl transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-indigo-400 hover:bg-slate-700'}`}>
-                                {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
+                                   {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
                                 </button>
                             </div>
                         </div>
