@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
-import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge } from 'lucide-react';
 import { getPreferredVoice, sanitizeForTTS } from '../services/audioUtils';
 
 interface PracticeSessionProps {
@@ -19,6 +19,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [showExplanation, setShowExplanation] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
+  const [speechRate, setSpeechRate] = useState(1.0); // 新增语速控制状态
   
   const triggeredPrefetchRef = useRef(false);
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
@@ -109,10 +110,18 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     }
   };
 
+  const toggleSpeed = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setSpeechRate(prev => {
+          if (prev === 1.0) return 0.8;
+          if (prev === 0.8) return 0.6;
+          return 1.0;
+      });
+  };
+
   const playTTS = (text: string, isFullSentence = false) => {
     if (!text) return;
     
-    // 移动端优化：文本清洗
     const cleanText = sanitizeForTTS(text);
 
     if (isFullSentence) { 
@@ -122,16 +131,14 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         setPlayingWord(text); 
     }
 
-    // 移动端优化：先停止当前所有发音
     window.speechSynthesis.cancel();
     
-    // 移动端优化：增加极小延迟，防止某些 Android 浏览器状态未重置
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = 'en-US';
         
-        // 移动端默认略微降低语速，以增强清晰度
-        utterance.rate = isFullSentence ? 0.9 : 1.0;
+        // 使用用户选择的语速，单词朗读保持 1.0 语速以保证清晰度
+        utterance.rate = isFullSentence ? speechRate : 1.0;
         
         if (preferredVoice) {
             utterance.voice = preferredVoice;
@@ -244,9 +251,18 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                                 <span className="w-1.5 h-4 bg-indigo-500 rounded-full"></span>
                                 <span className="text-xs font-bold text-indigo-300 uppercase tracking-widest">详解回顾</span>
                             </div>
-                            <button onClick={() => playTTS(currentExercise?.sentence, true)} className={`p-2 rounded-xl transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-indigo-400 hover:bg-slate-700'}`}>
-                               {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={toggleSpeed}
+                                    className="px-2 py-1 rounded-lg bg-slate-800 text-indigo-400 text-[10px] font-mono font-bold border border-slate-700 flex items-center gap-1 hover:bg-slate-700 transition-colors"
+                                    title="切换语速"
+                                >
+                                    <Gauge size={12} /> {speechRate}x
+                                </button>
+                                <button onClick={() => playTTS(currentExercise?.sentence, true)} className={`p-2 rounded-xl transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-indigo-400 hover:bg-slate-700'}`}>
+                                {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
+                                </button>
+                            </div>
                         </div>
                         
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">

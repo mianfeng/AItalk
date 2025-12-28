@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
-import { pcmToWav, getPreferredVoice } from '../services/audioUtils';
+import { pcmToWav, getPreferredVoice, sanitizeForTTS } from '../services/audioUtils';
 
 interface ShadowingModeProps {
   onBack: () => void;
@@ -110,7 +110,9 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
   const handleStartPractice = () => {
     if (!inputText.trim()) return;
-    setPracticeText(inputText);
+    // 移动端优化：进入练习前进行文本清洗，确保后续进度计算基于规范文本
+    const cleaned = sanitizeForTTS(inputText);
+    setPracticeText(cleaned);
     setState('practice');
     setAiAudioUrl(null);
     setLocalProgress(0);
@@ -136,13 +138,11 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     return null;
   };
 
-  // 极速模式：平滑计时器，解决 boundary 不触发的问题
   const startLocalProgressTimer = (startIndex: number) => {
     if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     
-    // 估算语速：每秒大约15个字符 (根据 aiSpeed 调整)
     const charsPerSecond = 15 * aiSpeed;
-    const interval = 100; // 每100ms更新一次
+    const interval = 100;
     const charsPerTick = charsPerSecond * (interval / 1000);
     
     let currentOffset = startIndex;
@@ -165,9 +165,11 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   };
 
   const startLocalSpeech = (startIndex: number) => {
+    // 移动端优化：彻底停止之前的发音
     window.speechSynthesis.cancel();
     if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     
+    // 移动端优化：延迟 50ms 等待引擎状态重置
     setTimeout(() => {
         const remainingText = practiceText.substring(startIndex);
         if (!remainingText.trim()) {
@@ -178,13 +180,13 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
         const utterance = new SpeechSynthesisUtterance(remainingText);
         utterance.lang = 'en-US';
-        utterance.rate = aiSpeed;
+        // 移动端稍微降低语速能显著改善清晰度
+        utterance.rate = aiSpeed * 0.95;
         
         if (preferredVoice) {
             utterance.voice = preferredVoice;
         }
 
-        // Boundary 事件作为校准（如果触发的话）
         utterance.onboundary = (event) => {
           if (event.name === 'word' && !isSeekingRef.current) {
             const absoluteCharIndex = startIndex + event.charIndex;

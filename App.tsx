@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise, StatsHistory } from './types';
 import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises } from './services/contentGen';
 import { getTotalLocalItemsCount } from './services/localRepository';
@@ -50,11 +50,9 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
         return last7Days.map(date => history[date] || { itemsLearned: 0, itemsReviewed: 0 });
     }, [history, last7Days]);
 
-    // 独立缩放逻辑
     const maxL = Math.max(...data.map(d => d.itemsLearned), 5);
     const maxR = Math.max(...data.map(d => d.itemsReviewed), 20);
     
-    // 图表画布尺寸：400 x 160
     const padding = { top: 40, bottom: 30, left: 30, right: 30 };
     const chartWidth = 400 - padding.left - padding.right;
     const chartHeight = 160 - padding.top - padding.bottom;
@@ -87,33 +85,22 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
             
             <div className="w-full">
                 <svg viewBox="0 0 400 160" className="w-full h-auto overflow-visible">
-                    {/* Grid lines */}
                     {[0, 0.25, 0.5, 0.75, 1].map(v => {
                         const y = padding.top + v * chartHeight;
                         return <line key={v} x1={padding.left} y1={y} x2={400 - padding.right} y2={y} stroke="white" strokeOpacity="0.04" strokeWidth="1" />;
                     })}
-                    
-                    {/* Reviewed Line (Background) */}
                     <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={reviewedPoints} className="opacity-60" />
-                    
-                    {/* Learned Line (Foreground) */}
                     <polyline fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={learnedPoints} />
-                    
-                    {/* Data Nodes & Labels */}
                     {data.map((d, i) => {
                         const x = getX(i);
                         const ly = getYL(d.itemsLearned);
                         const ry = getYR(d.itemsReviewed);
-                        
                         return (
                             <g key={i}>
-                                {/* Review Dot & Label */}
                                 <circle cx={x} cy={ry} r="3" fill="#f97316" className="drop-shadow-[0_0_4px_rgba(249,115,22,0.4)]" />
                                 <text x={x} y={ry - 10} fontSize="10" textAnchor="middle" fill="#fb923c" fontWeight="bold" className="font-mono select-none">
                                     {d.itemsReviewed > 0 ? d.itemsReviewed : ''}
                                 </text>
-                                
-                                {/* Learned Dot & Label */}
                                 <circle cx={x} cy={ly} r="3" fill="#10b981" className="drop-shadow-[0_0_4px_rgba(16,185,129,0.4)]" />
                                 <text x={x} y={ly + 18} fontSize="10" textAnchor="middle" fill="#34d399" fontWeight="bold" className="font-mono select-none">
                                     {d.itemsLearned > 0 ? d.itemsLearned : ''}
@@ -121,8 +108,6 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
                             </g>
                         );
                     })}
-                    
-                    {/* X-Axis Dates */}
                     {last7Days.map((date, i) => (
                         <text key={date} x={getX(i)} y={160 - 5} fontSize="9" textAnchor="middle" fill="#475569" fontWeight="600" className="font-mono uppercase">
                             {i === 6 ? '今日' : date.split(' ')[1] + ' ' + date.split(' ')[2]}
@@ -148,6 +133,7 @@ const App: React.FC = () => {
   });
 
   const todayStr = new Date().toDateString();
+  const isPrefetchingRef = useRef(false); // 并发控制锁
 
   const [dailyStats, setDailyStats] = useState<DailyStats>(() => {
     if (statsHistory[todayStr]) return statsHistory[todayStr];
@@ -164,36 +150,49 @@ const App: React.FC = () => {
 
   const overdueItems = vocabList.filter(v => v.nextReviewAt <= Date.now());
 
+  /**
+   * 核心复习算法：待复习 -> 已学未到期随机 -> 离线库抽新
+   */
   const fetchNewExercises = async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
-    const excludeTexts = new Set(excludeItems.map(i => fastClean(i.text)));
-    const filteredVocab = currentVocab.filter(v => !excludeTexts.has(fastClean(v.text)));
+    // 强制使用 ID 排除，防止字符串清洗规则不一致导致的重复
+    const excludeIds = new Set(excludeItems.map(i => i.id));
+    const filteredVocab = currentVocab.filter(v => !excludeIds.has(v.id));
     
+    // 1. 获取待复习
     const overdue = filteredVocab.filter(v => v.nextReviewAt <= Date.now());
-    if (overdue.length === 0) return null;
-
     let selected: StudyItem[] = [...overdue];
-    const remainder = selected.length % 3;
-    if (remainder !== 0) {
-        const needed = 3 - remainder;
+    
+    // 2. 如果不足 30 个，用“已学过但未到期”的填补
+    if (selected.length < 30) {
         const learnedNotOverdue = filteredVocab.filter(v => v.nextReviewAt > Date.now());
+        const needed = 30 - selected.length;
         const fillers = learnedNotOverdue.sort(() => 0.5 - Math.random()).slice(0, needed);
-        if (fillers.length < needed) {
-            const newItems = await generateDailyContent(needed - fillers.length, currentVocab);
-            selected = [...selected, ...fillers, ...newItems];
-        } else {
-            selected = [...selected, ...fillers];
-        }
+        selected = [...selected, ...fillers];
+    }
+
+    // 3. 仍然不足 30 个，从离线库抽新词（凑够 3 词一组的要求）
+    if (selected.length < 30) {
+        const needed = 30 - selected.length;
+        const newItems = await generateDailyContent(needed, currentVocab);
+        selected = [...selected, ...newItems];
     }
     
-    const finalSelection = selected.slice(0, 45);
+    // 确保是 3 的倍数
+    const finalCount = Math.floor(selected.length / 3) * 3;
+    const finalSelection = selected.slice(0, finalCount);
+    
+    if (finalSelection.length < 3) return null;
+
     const exercises = await generatePracticeExercises(finalSelection);
     return { exercises, items: finalSelection };
   };
 
   const prefetchExercises = useCallback(async (currentVocab: VocabularyItem[], excludeItems: StudyItem[] = []) => {
+    if (isPrefetchingRef.current) return;
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) return; 
 
+    isPrefetchingRef.current = true;
     try {
         const result = await fetchNewExercises(currentVocab, excludeItems);
         if (result && result.exercises.length > 0) {
@@ -201,10 +200,13 @@ const App: React.FC = () => {
         }
     } catch (e) {
         console.warn("后台预加载失败", e);
+    } finally {
+        isPrefetchingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
+    // 回到主页时，如果缓存为空且有待复习，自动触发预加载
     if (mode === 'dashboard' && overdueItems.length > 0) {
         prefetchExercises(vocabList);
     }
@@ -239,17 +241,9 @@ const App: React.FC = () => {
 
     setIsGenerating('exercise');
     try {
-      let result = await fetchNewExercises(vocabList);
-      if (!result || result.exercises.length === 0) {
-        const newItems = await generateDailyContent(3, vocabList);
-        if (newItems.length > 0) {
-          const exercises = await generatePracticeExercises(newItems);
-          result = { exercises, items: newItems };
-        }
-      }
-
+      const result = await fetchNewExercises(vocabList);
       if (!result || result.exercises.length === 0) { 
-        alert("目前词库已学完且没有待复习单词，去学习点新内容吧！");
+        alert("目前没有待练习内容，去学习点新词吧！");
         return; 
       }
       
@@ -277,6 +271,7 @@ const App: React.FC = () => {
         return newList;
     });
     setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + results.length }));
+    localStorage.removeItem(CACHE_KEY); // 数据变动，强制清除旧缓存
     setMode('dashboard'); 
   };
 
@@ -300,7 +295,7 @@ const App: React.FC = () => {
 
             if (isMatched) {
                 const currentLevel = item.masteryLevel || 0;
-                const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(1, currentLevel - 1);
+                const newLevel = isCorrect ? Math.min(5, currentLevel + 1) : Math.max(0, currentLevel - 1);
                 return { ...item, text: itemClean, lastReviewed: now, nextReviewAt: now + getNextReviewInterval(newLevel), masteryLevel: newLevel };
             }
             return item;
@@ -320,6 +315,7 @@ const App: React.FC = () => {
     });
 
     setDailyStats(prev => ({ ...prev, itemsReviewed: prev.itemsReviewed + results.length }));
+    localStorage.removeItem(CACHE_KEY); // 任务完成，清除衔接产生的预加载，确保回到主页后能基于最新复习时间重新计算
     setMode('dashboard');
   };
 
@@ -381,7 +377,7 @@ const App: React.FC = () => {
                             </div>
                         ) : (
                             <div className="bg-slate-800 text-slate-500 text-[10px] font-medium px-2 py-1 rounded-lg border border-slate-700/50">
-                               今日已完成
+                               无待复习词
                             </div>
                         )}
                      </div>
