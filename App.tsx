@@ -185,7 +185,8 @@ const App: React.FC = () => {
         }
     }
     
-    const finalSelection = selected.slice(0, 45);
+    // 调整为 30，即 10 组练习（每组 3 个单词）
+    const finalSelection = selected.slice(0, 30);
     const exercises = await generatePracticeExercises(finalSelection);
     return { exercises, items: finalSelection };
   };
@@ -213,7 +214,8 @@ const App: React.FC = () => {
   const startDailyPlan = async () => {
     setIsGenerating('study');
     try {
-        const newItems = await generateDailyContent(15, vocabList); 
+        // 将新词学习的数量从 15 改为 10
+        const newItems = await generateDailyContent(10, vocabList); 
         if (newItems.length === 0) { alert("词库中的新词已学完！"); return; }
         setTodaysItems(newItems.map(i => ({ ...i, saved: false })));
         setStudyIndex(0); setMode('study');

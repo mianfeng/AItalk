@@ -123,7 +123,8 @@ function sanitizeExercises(exercises: any[]): PracticeExercise[] {
     return exercises.map(ex => {
         const targetWords = Array.isArray(ex.targetWords) ? ex.targetWords : (ex.word ? [ex.word] : []);
         const correctAnswers = Array.isArray(ex.correctAnswers) ? ex.correctAnswers : (ex.correctAnswer ? [ex.correctAnswer] : []);
-        
+        const targetWordPronunciations = Array.isArray(ex.targetWordPronunciations) ? ex.targetWordPronunciations : [];
+
         let options: string[] = [];
         if (Array.isArray(ex.options)) {
             ex.options.forEach((opt: any) => {
@@ -140,6 +141,7 @@ function sanitizeExercises(exercises: any[]): PracticeExercise[] {
         
         return {
             targetWords,
+            targetWordPronunciations,
             sentence: ex.sentence || "",
             sentenceZh: ex.sentenceZh || "",
             quizQuestion: ex.quizQuestion || ex.sentence?.replace(new RegExp(correctAnswers.join('|'), 'gi'), '____') || "Error: Missing Question",
@@ -204,8 +206,9 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   CRITICAL RULES:
   1. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
   2. The "correctAnswers" must be a list of the 3 words in order.
-  3. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
-  4. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
+  3. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
+  4. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+  5. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
   
   Output JSON format: {"exercises": [...]}`;
 
@@ -249,6 +252,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   Requirement:
   - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
   - "targetWords": The 3 words provided.
+  - "targetWordPronunciations": Standard IPA symbols for the 3 words.
   - "correctAnswers": The 3 words in correct order.
   - "options": The 3 correct words plus 4-6 distractors (total 8-10 individual strings).
   - "sentenceZh": Chinese translation of the full sentence.
@@ -268,6 +272,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
             type: Type.OBJECT,
             properties: {
               targetWords: { type: Type.ARRAY, items: { type: Type.STRING } },
+              targetWordPronunciations: { type: Type.ARRAY, items: { type: Type.STRING } },
               sentence: { type: Type.STRING },
               sentenceZh: { type: Type.STRING },
               quizQuestion: { type: Type.STRING, description: "Sentence with exactly three '____' placeholders" },
@@ -275,7 +280,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
               correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
               explanation: { type: Type.STRING, description: "Detailed linguistic explanation in Chinese" }
             },
-            required: ["targetWords", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers", "explanation"]
+            required: ["targetWords", "targetWordPronunciations", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers", "explanation"]
           }
         } 
       }

@@ -33,9 +33,9 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   const vocabMap = useMemo(() => {
     const saved = localStorage.getItem('lingua_vocab');
-    if (!saved) return new Map<string, number>();
+    if (!saved) return new Map<string, {level: number, pronunciation: string}>();
     const list: VocabularyItem[] = JSON.parse(saved);
-    return new Map(list.map(v => [v.text.toLowerCase(), v.masteryLevel]));
+    return new Map(list.map(v => [v.text.toLowerCase(), { level: v.masteryLevel, pronunciation: v.pronunciation || "" }]));
   }, [isFinished, showExplanation]);
 
   useEffect(() => {
@@ -193,18 +193,21 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
             <p className="text-slate-400 mb-8 text-center text-sm">本次练习结果总结：</p>
             <div className="w-full grid grid-cols-1 gap-3 mb-10">
                 {finalResultsArray.map((res, idx) => {
-                    const level = vocabMap.get(res.word.toLowerCase()) || 0;
+                    const stats = vocabMap.get(res.word.toLowerCase()) || { level: 0, pronunciation: "" };
                     return (
                         <div key={idx} className={`bg-slate-900 border ${res.isCorrect ? 'border-slate-800' : 'border-red-900/30'} p-4 rounded-2xl flex items-center justify-between group transition-colors`}>
                             <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-800 rounded-md border border-slate-700">
+                                <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-800 rounded-md border border-slate-700 shrink-0">
                                     <BarChart size={10} className={res.isCorrect ? "text-blue-400" : "text-red-400"} />
-                                    <span className="text-[10px] text-slate-400 font-bold uppercase">Lv {level}</span>
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase">Lv {stats.level}</span>
                                 </div>
-                                <span className={`text-lg font-semibold ${res.isCorrect ? 'text-slate-100' : 'text-slate-400'}`}>{res.word}</span>
-                                {!res.isCorrect && <span className="text-[10px] text-red-500 bg-red-500/10 px-1.5 rounded">需巩固</span>}
+                                <div className="flex items-baseline gap-2 overflow-hidden">
+                                    <span className={`text-lg font-semibold truncate ${res.isCorrect ? 'text-slate-100' : 'text-slate-400'}`}>{res.word}</span>
+                                    {stats.pronunciation && <span className="text-[10px] text-slate-600 font-mono italic shrink-0">{stats.pronunciation}</span>}
+                                </div>
+                                {!res.isCorrect && <span className="text-[10px] text-red-500 bg-red-500/10 px-1.5 rounded shrink-0">需巩固</span>}
                             </div>
-                            <button onClick={() => playTTS(res.word)} className={`p-2.5 rounded-full transition-all ${playingWord === res.word ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
+                            <button onClick={() => playTTS(res.word)} className={`p-2.5 rounded-full transition-all shrink-0 ${playingWord === res.word ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
                                 <Volume2 size={20} />
                             </button>
                         </div>
@@ -270,17 +273,23 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                         
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
                             {currentExercise?.targetWords?.map((word, idx) => {
-                                const level = vocabMap.get(word.toLowerCase()) || 0;
+                                const stats = vocabMap.get(word.toLowerCase()) || { level: 0, pronunciation: "" };
+                                // Prioritize AI generated IPA, fallback to bank IPA
+                                const pronunciation = currentExercise.targetWordPronunciations?.[idx] || stats.pronunciation;
+                                
                                 return (
-                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-2.5 rounded-xl border text-xs font-medium flex items-center justify-between transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex items-center gap-1 scale-90 opacity-80">
+                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-2.5 rounded-xl border text-xs font-medium flex flex-col items-center justify-center transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'}`}>
+                                        <div className="flex items-center justify-between w-full mb-1">
+                                            <div className="flex items-center gap-1 scale-75 opacity-70">
                                                 <BarChart size={10} />
-                                                <span className="text-[9px] font-bold">Lv{level}</span>
+                                                <span className="text-[9px] font-bold">Lv{stats.level}</span>
                                             </div>
-                                            <span className="truncate max-w-[80px]">{word}</span>
+                                            <Volume2 size={10} className={playingWord === word ? 'animate-pulse' : ''} />
                                         </div>
-                                        <Volume2 size={12} className={playingWord === word ? 'animate-pulse' : ''} />
+                                        <div className="flex items-baseline gap-1.5 max-w-full overflow-hidden">
+                                            <span className="truncate font-bold text-sm">{word}</span>
+                                            {pronunciation && <span className={`text-[9px] font-mono italic shrink-0 ${playingWord === word ? 'text-emerald-100' : 'text-slate-500'}`}>{pronunciation}</span>}
+                                        </div>
                                     </button>
                                 );
                             })}

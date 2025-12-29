@@ -16,8 +16,8 @@ export interface StudyItem {
 }
 
 export interface PracticeExercise {
-  // Removed single 'word' and 'correctAnswer' in favor of array based approach
   targetWords: string[]; // The 3 words being tested
+  targetWordPronunciations?: string[]; // New: Standard IPA for the words
   sentence: string; // Full correct sentence
   sentenceZh: string; 
   quizQuestion: string; // Sentence with 3 blanks (____)
