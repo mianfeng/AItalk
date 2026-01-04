@@ -4,10 +4,10 @@ import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise, Vocabulary
 import { getLocalContent } from "./localRepository";
 
 // Using correct model identifiers based on official mapping
-const GENERAL_MODEL_NAME = "gemini-flash-latest"; 
+const GENERAL_MODEL_NAME = "gemini-3-flash-preview"; 
 const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
-const CONVERSATION_MODEL_NAME = "gemini-flash-latest"; 
-const PRACTICE_MODEL_NAME = "gemini-flash-latest"; 
+const CONVERSATION_MODEL_NAME = "gemini-3-flash-preview"; 
+const PRACTICE_MODEL_NAME = "gemini-3-flash-preview"; 
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";
@@ -208,7 +208,8 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   2. The "correctAnswers" must be a list of the 3 words in order.
   3. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
   4. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
-  5. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
+  5. total 5-6 options only: The 3 correct words plus 2-3 distractors.
+  6. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
   
   Output JSON format: {"exercises": [...]}`;
 
@@ -254,7 +255,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   - "targetWords": The 3 words provided.
   - "targetWordPronunciations": Standard IPA symbols for the 3 words.
   - "correctAnswers": The 3 words in correct order.
-  - "options": The 3 correct words plus 4-6 distractors (total 8-10 individual strings).
+  - "options": The 3 correct words plus 2-3 distractors (total 5-6 individual strings only).
   - "sentenceZh": Chinese translation of the full sentence.
   - "explanation": A detailed, clear explanation of how the 3 target words function in the sentence, written entirely in CHINESE (中文).`;
 
