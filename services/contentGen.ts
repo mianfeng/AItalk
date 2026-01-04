@@ -4,10 +4,11 @@ import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise, Vocabulary
 import { getLocalContent } from "./localRepository";
 
 // Using correct model identifiers based on official mapping
-const GENERAL_MODEL_NAME = "gemini-3-flash-preview"; 
+// Using correct model identifiers based on official mapping
+const GENERAL_MODEL_NAME = "gemini-flash-latest"; 
 const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
-const CONVERSATION_MODEL_NAME = "gemini-3-flash-preview"; 
-const PRACTICE_MODEL_NAME = "gemini-3-flash-preview"; 
+const CONVERSATION_MODEL_NAME = "gemini-flash-latest"; 
+const PRACTICE_MODEL_NAME = "gemini-flash-latest"; 
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY) || ""; 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions";
