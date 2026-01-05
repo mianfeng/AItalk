@@ -4,7 +4,6 @@ import { StudyItem, AnalysisResult, DailyQuoteItem, PracticeExercise, Vocabulary
 import { getLocalContent } from "./localRepository";
 
 // Using correct model identifiers based on official mapping
-// Using correct model identifiers based on official mapping
 const GENERAL_MODEL_NAME = "gemini-flash-latest"; 
 const SPEECH_MODEL_NAME = "gemini-2.5-flash-preview-tts"; 
 const CONVERSATION_MODEL_NAME = "gemini-flash-latest"; 
@@ -166,7 +165,7 @@ export async function generatePracticeExercises(items: StudyItem[]): Promise<Pra
         if (rawExercises && rawExercises.length > 0) {
             const sanitized = sanitizeExercises(rawExercises);
             if (sanitized.length > 0) {
-                console.log(`成功调用 Google Gemini (${PRACTICE_MODEL_NAME}) - 生成练习`);
+                console.log(`成功调用 Google Gemini (${PRACTICE_MODEL_NAME}) - 生成精简版练习`);
                 return sanitized;
             }
         }
@@ -204,13 +203,14 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   const prompt = `You are an expert English Professor. Create vocabulary exercises for these groups: ${JSON.stringify(wordGroups)}.
   Each group of 3 words must produce ONE exercise.
   
-  CRITICAL RULES:
-  1. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
-  2. The "correctAnswers" must be a list of the 3 words in order.
-  3. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
-  4. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
-  5. total 5-6 options only: The 3 correct words plus 2-3 distractors.
-  6. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
+  CRITICAL RULES FOR SHORT SENTENCES:
+  1. Each sentence MUST be short and simple (MAX 25 words). 
+  2. Use natural, conversational English. Avoid overly academic or complex grammar.
+  3. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
+  4. The "correctAnswers" must be a list of the 3 words in order.
+  5. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
+  6. FLAT OPTIONS ARRAY: total 5-6 options only (the 3 correct words plus 2-3 distractors).
+  7. The "explanation" field MUST be in CHINESE (中文), explaining the word usage in this specific context.
   
   Output JSON format: {"exercises": [...]}`;
 
@@ -223,7 +223,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
-        { role: "system", content: "You are a professional English tutor that only outputs JSON. You provide detailed linguistic explanations in Chinese." },
+        { role: "system", content: "You are a professional English tutor that only outputs JSON. You create very short, punchy sentences for learners." },
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
@@ -247,25 +247,23 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
     wordGroups.push(group);
   }
 
-  const prompt = `Task: Create fill-in-the-blank English exercises.
+  const prompt = `Task: Create extremely CONCISE English exercises.
   Data groups: ${JSON.stringify(wordGroups)}.
   
-  For each group, create ONE sentence that uses all 3 target words.
+  For each group, create ONE SHORT sentence (MAX 15 words) that uses all 3 target words.
   Requirement:
-  - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
-  - "targetWords": The 3 words provided.
-  - "targetWordPronunciations": Standard IPA symbols for the 3 words.
-  - "correctAnswers": The 3 words in correct order.
-  - "options": The 3 correct words plus 2-3 distractors (total 5-6 individual strings only).
-  - "sentenceZh": Chinese translation of the full sentence.
-  - "explanation": A detailed, clear explanation of how the 3 target words function in the sentence, written entirely in CHINESE (中文).`;
+  - Keep it simple: Avoid complex clauses. Focus on everyday life or work contexts.
+  - "quizQuestion": The sentence with "____" replacing each target word.
+  - "targetWordPronunciations": Standard IPA symbols.
+  - "options": EXACTLY 5 or 6 individual strings (the 3 correct answers + 2 or 3 distractors).
+  - "explanation": Detailed linguistic explanation in CHINESE (中文).`;
 
   try {
     const response = await ai.models.generateContent({
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
-        systemInstruction: "You are a professional English tutor and specialized JSON generator for English learning exercises. You provide helpful, natural linguistic analysis in Chinese. Always return a valid JSON array of objects.",
+        systemInstruction: "You are a professional English tutor. You excel at writing short, clear, and natural sentences for language learners. Always return a valid JSON array of objects.",
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
@@ -277,10 +275,10 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
               targetWordPronunciations: { type: Type.ARRAY, items: { type: Type.STRING } },
               sentence: { type: Type.STRING },
               sentenceZh: { type: Type.STRING },
-              quizQuestion: { type: Type.STRING, description: "Sentence with exactly three '____' placeholders" },
+              quizQuestion: { type: Type.STRING },
               options: { type: Type.ARRAY, items: { type: Type.STRING } },
               correctAnswers: { type: Type.ARRAY, items: { type: Type.STRING } },
-              explanation: { type: Type.STRING, description: "Detailed linguistic explanation in Chinese" }
+              explanation: { type: Type.STRING }
             },
             required: ["targetWords", "targetWordPronunciations", "sentence", "sentenceZh", "quizQuestion", "options", "correctAnswers", "explanation"]
           }
