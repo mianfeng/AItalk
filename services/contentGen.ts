@@ -211,7 +211,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   4. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
   5. total 5-6 options only: The 3 correct words plus 2-3 distractors.
   6. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
-  7. Each sentence MUST be short and simple (MAX 25 words). 
+  7. Each sentence MUST be short and simple (MAX 20 words). 
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
