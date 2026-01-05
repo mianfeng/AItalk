@@ -205,13 +205,13 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   Each group of 3 words must produce ONE exercise.
   
   CRITICAL RULES:
-  1. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
+  1. Each sentence MUST be short and simple (MAX 20 words).
   2. The "correctAnswers" must be a list of the 3 words in order.
   3. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
-  4. FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+  4. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
   5. total 5-6 options only: The 3 correct words plus 2-3 distractors.
   6. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
-  7. Each sentence MUST be short and simple (MAX 20 words). 
+  7.  FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
