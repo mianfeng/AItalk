@@ -138,6 +138,7 @@ function sanitizeExercises(exercises: any[]): PracticeExercise[] {
             });
         }
         
+        // Ensure options include the correct answers
         const finalOptions = Array.from(new Set([...options, ...correctAnswers]));
         
         return {
@@ -206,12 +207,13 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   
   CRITICAL RULES:
   1. Each sentence MUST be short and simple (MAX 17 words).
-  2. The "correctAnswers" must be a list of the 3 words in order.
-  3. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
-  4. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
-  5. total 5-6 options only: The 3 correct words plus 2-3 distractors.
-  6. The "explanation" field MUST be in CHINESE (中文), explaining why these words are the correct choice for this specific context.
-  7.  FLAT OPTIONS ARRAY: The "options" field MUST be a flat array of INDIVIDUAL strings. 
+  2. "quizQuestion": Sentence with exactly THREE "____" placeholders.
+  3. "correctAnswers": The 3 correct words filling the blanks, in order.
+  4. "targetWords": The 3 original target words (base forms) corresponding to the blanks, in the SAME ORDER as correctAnswers.
+  5. "targetWordPronunciations": Standard IPA symbols for the 3 target words.
+  6. "options": The 3 correct words plus 2-3 distractors (total 5-6 strings).
+  7. "explanation": A helpful teaching explanation in CHINESE.
+  
   Output JSON format: {"exercises": [...]}`;
 
   const response = await fetch(DEEPSEEK_BASE_URL, {
@@ -223,7 +225,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
-        { role: "system", content: "You are a professional English tutor that only outputs JSON. You provide detailed linguistic explanations in Chinese." },
+        { role: "system", content: "You are a professional English tutor that only outputs JSON." },
         { role: "user", content: prompt }
       ],
       response_format: { type: 'json_object' },
@@ -250,22 +252,23 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   const prompt = `Task: Create fill-in-the-blank English exercises for language learners.
   Data groups: ${JSON.stringify(wordGroups)}.
   
-  For each group, create ONE sentence that uses all 3 target words，Each sentence make logical sense and reflect how a native speaker would actually talk. Max 20 words.
+  For each group, create ONE sentence that uses all 3 target words. Each sentence make logical sense and reflect how a native speaker would actually talk. Max 20 words.
+  
   Requirement:
-  - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
-  - "targetWords": The 3 words provided.
-  - "targetWordPronunciations": Standard IPA symbols for the 3 words.
-  - "correctAnswers": The 3 words in correct order.
-  - "options": The 3 correct words plus 2-3 distractors (total 5-6 individual strings only).
+  - "quizQuestion": The sentence with "____" replacing the target words. Must have exactly 3 "____".
+  - "correctAnswers": The 3 correct words filling the blanks, in order.
+  - "targetWords": The 3 original target words (base forms) corresponding to the blanks, in the SAME ORDER as correctAnswers.
+  - "targetWordPronunciations": Standard IPA symbols for the 3 target words.
+  - "options": The 3 correct words plus 2-3 distractors (total 5-6 individual strings).
   - "sentenceZh": Natural Chinese translation.
-  - "explanation": A helpful teaching explanation in CHINESE, clear explanation of  WHY the word fits the context (focus on collocations/phrase usage).`;
+  - "explanation": A helpful teaching explanation in CHINESE, clear explanation of  WHY the word fits the context (focus on collocations/phrase usage)`;
 
   try {
     const response = await ai.models.generateContent({
       model: PRACTICE_MODEL_NAME,
       contents: prompt,
       config: {
-        systemInstruction: "You are a professional English tutor and specialized JSON generator for English learning exercises. You provide helpful, natural linguistic analysis in Chinese. Always return a valid JSON array of objects.",
+        systemInstruction: "You are a professional English tutor and specialized JSON generator. You provide helpful, natural linguistic analysis in Chinese. Always return a valid JSON array of objects.",
         temperature: 0.7,
         responseMimeType: "application/json",
         responseSchema: {
@@ -273,7 +276,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
           items: {
             type: Type.OBJECT,
             properties: {
-              targetWords: { type: Type.ARRAY, items: { type: Type.STRING } },
+              targetWords: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Base forms of the words, matching the order of correctAnswers" },
               targetWordPronunciations: { type: Type.ARRAY, items: { type: Type.STRING } },
               sentence: { type: Type.STRING },
               sentenceZh: { type: Type.STRING },

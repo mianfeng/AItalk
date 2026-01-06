@@ -43,7 +43,12 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   useEffect(() => {
     if (currentExercise) {
-        setShuffledOptions([...(currentExercise.options || [])].sort(() => 0.5 - Math.random()));
+        // Ensure options include both correct answers and target words (lemmas) if they are different
+        const extraOptions = currentExercise.targetWords || [];
+        const baseOptions = [...(currentExercise.options || [])];
+        const allOptions = Array.from(new Set([...baseOptions, ...extraOptions]));
+
+        setShuffledOptions(allOptions.sort(() => 0.5 - Math.random()));
         setUserAnswers(new Array((currentExercise.correctAnswers || []).length).fill(null)); 
         setIsCorrect(null);
         setShowExplanation(false);
@@ -59,7 +64,22 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     if (!str) return "";
     return str.toLowerCase().trim()
         .replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'")
-        .replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"');
+        .replace(/[\u201C\u201D\u201F\u2033\u2036]/g, '"')
+        .replace(/[.,!?;:]/g, ''); // Extra cleanup for punctuation
+  };
+
+  const isAnswerCorrect = (userAns: string | null, index: number) => {
+      if (!userAns) return false;
+      const normUser = normalize(userAns);
+      const normCorrect = normalize(currentExercise.correctAnswers[index]);
+      
+      // Allow matching the base target word if available (handling lemma variations)
+      // This assumes targetWords[i] corresponds to correctAnswers[i] which we enforce in contentGen
+      const normTarget = currentExercise.targetWords && currentExercise.targetWords[index] 
+          ? normalize(currentExercise.targetWords[index]) 
+          : '';
+      
+      return normUser === normCorrect || (!!normTarget && normUser === normTarget);
   };
 
   const handleOptionClick = (word: string) => {
@@ -80,9 +100,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const checkAnswer = () => {
-    const overallCorrect = userAnswers.every((ans, i) => 
-        normalize(ans) === normalize(currentExercise.correctAnswers[i])
-    );
+    const overallCorrect = userAnswers.every((ans, i) => isAnswerCorrect(ans, i));
     
     setIsCorrect(overallCorrect);
     setShowExplanation(true);
@@ -90,7 +108,8 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     setSessionResults(prev => {
         const next = new Map(prev);
         currentExercise.targetWords.forEach((word, i) => {
-            const isThisSlotCorrect = normalize(userAnswers[i]) === normalize(currentExercise.correctAnswers[i]);
+            // Check correctness based on user input for this slot index
+            const isThisSlotCorrect = isAnswerCorrect(userAnswers[i], i);
             next.set(word, isThisSlotCorrect);
         });
         return next;
@@ -132,7 +151,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         elements.push(<span key={`text-${i}`} className="text-slate-300 font-medium text-lg leading-loose">{parts[i]}</span>);
         if (i < correctAnsCount) { 
             const ans = userAnswers[i];
-            const isWordCorrect = isCorrect !== null && normalize(ans) === normalize(currentExercise.correctAnswers[i]);
+            const isWordCorrect = isCorrect !== null && isAnswerCorrect(ans, i);
             elements.push(
                 <button key={`slot-${i}`} onClick={() => handleSlotClick(i)} className={`inline-flex items-center justify-center min-w-[90px] h-10 px-3 mx-1 align-middle rounded-xl border-b-4 transition-all ${ans ? (isCorrect === null ? 'bg-blue-600 border-blue-800' : (isWordCorrect ? 'bg-emerald-600 border-emerald-800' : 'bg-red-500 border-red-800')) : 'bg-slate-800 border-slate-700 animate-pulse'} text-white font-bold`}>
                     {ans || "____"}
