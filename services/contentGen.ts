@@ -250,7 +250,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   const prompt = `Task: Create fill-in-the-blank English exercises.
   Data groups: ${JSON.stringify(wordGroups)}.
   
-  For each group, create ONE sentence that uses all 3 target words，Each sentence MUST be short and simple (MAX 20 words).
+  For each group, create ONE sentence that uses all 3 target words，Each sentence make logical sense and reflect how a native speaker would actually talk. Max 25 words.
   Requirement:
   - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
   - "targetWords": The 3 words provided.
@@ -258,7 +258,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   - "correctAnswers": The 3 words in correct order.
   - "options": The 3 correct words plus 2-3 distractors (total 5-6 individual strings only).
   - "sentenceZh": Chinese translation of the full sentence.
-  - "explanation": A detailed, clear explanation of how the 3 target words function in the sentence, written entirely in CHINESE (中文).`;
+  - "explanation": A detailed, clear explanation of  WHY the word fits the context (focus on collocations/phrase usage), written entirely in CHINESE (中文).`;
 
   try {
     const response = await ai.models.generateContent({
