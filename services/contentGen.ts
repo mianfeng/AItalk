@@ -205,7 +205,7 @@ async function generatePracticeExercisesWithDeepSeek(items: StudyItem[]): Promis
   Each group of 3 words must produce ONE exercise.
   
   CRITICAL RULES:
-  1. Each sentence MUST be short and simple (MAX 20 words).
+  1. Each sentence MUST be short and simple (MAX 17 words).
   2. The "correctAnswers" must be a list of the 3 words in order.
   3. The "targetWordPronunciations" MUST be a list of the 3 corresponding standard IPA symbols.
   4. The "quizQuestion" MUST contain exactly THREE "____" (four underscores) placeholders.
@@ -250,7 +250,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   const prompt = `Task: Create fill-in-the-blank English exercises.
   Data groups: ${JSON.stringify(wordGroups)}.
   
-  For each group, create ONE sentence that uses all 3 target words.
+  For each group, create ONE sentence that uses all 3 target words，Each sentence MUST be short and simple (MAX 20 words).
   Requirement:
   - "quizQuestion": The sentence with "____" replacing each target word. Must have 3 "____".
   - "targetWords": The 3 words provided.
