@@ -1,445 +1,227 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Play, ArrowRight, RefreshCcw, Volume2, Sparkles, AlertCircle, Loader2, PlayCircle, PlusCircle, Check, RotateCcw, Target, X, Save, MessageSquare, MapPin, User } from 'lucide-react';
 import { analyzeAudioResponse, generateSpeech } from '../services/contentGen';
 import { playAudioFromBase64 } from '../services/audioUtils';
-import { AnalysisResult, ItemType, VocabularyItem, ConversationSession } from '../types';
+import { AnalysisResult, ItemType, ConversationSession } from '../types';
+import { useSpeech } from '../hooks/useSpeech';
+import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
 interface ConversationModeProps {
   session: ConversationSession;
   onUpdate: (session: ConversationSession) => void;
   onEndSession: () => void;
   onBack: () => void;
-  onSaveVocab: (text: string, type: ItemType) => void;
+  onSaveVocab: (item: any) => void;
 }
 
 export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onUpdate, onEndSession, onBack, onSaveVocab }) => {
-  const [currentTopic, setCurrentTopic] = useState<string>(session.topic);
-  const [history, setHistory] = useState<{user: string, ai: string}[]>(session.history || []);
-  
-  // Use session.targetWords
-  const targetWords = session.targetWords;
-
-  // States: idle -> recording -> processing -> reviewing -> idle
-  const [state, setState] = useState<'idle' | 'recording' | 'processing' | 'reviewing'>('idle');
+  const [processingState, setProcessingState] = useState<'idle' | 'analyzing' | 'speaking'>('idle');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   
-  // Stores the "Better Version" from the PREVIOUS attempt when "Try Again" is clicked
-  const [lastBetterVersion, setLastBetterVersion] = useState<string | null>(null);
+  // Audio Hooks
+  const { isRecording, startRecording, stopRecording, audioUrl: userAudioUrl } = useAudioRecorder();
+  
+  // Note: We use useSpeech for reading text, but Gemini's direct audio response is handled by playAudioFromBase64
+  const { speak, isPlaying: isTTSPlaying, cancel: cancelTTS } = useSpeech();
 
-  const [playingId, setPlayingId] = useState<string | null>(null); // 'topic' or 'better'
-  
-  // User Audio State
-  const [userAudioUrl, setUserAudioUrl] = useState<string | null>(null);
   const userAudioRef = useRef<HTMLAudioElement>(null);
-  
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Audio Cache
-  const audioCache = useRef<Map<string, string>>(new Map());
-
-  // Check if it is the start of a Free Talk session
-  const isFreeTalkStart = history.length === 0 && currentTopic.includes("Free Talk");
-
-  // Check if topic updated in props (shouldn't really happen inside this view, but good safety)
-  useEffect(() => {
-      setCurrentTopic(session.topic);
-      setHistory(session.history || []);
-  }, [session.topic, session.history]);
-
-  // Update parent whenever history changes
-  const updateHistory = (newHistory: {user: string, ai: string}[], newTopic: string) => {
-      setHistory(newHistory);
-      setCurrentTopic(newTopic);
-      onUpdate({
-          ...session,
-          history: newHistory,
-          topic: newTopic,
-          lastUpdated: Date.now()
-      });
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Cleanup audio URL on unmount
   useEffect(() => {
-    return () => {
-        if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
-        audioCache.current.clear();
-    };
-  }, []);
+    scrollToBottom();
+  }, [session.history, analysis]);
 
-  const playTTS = async (text: string, id: string) => {
-    if (playingId) return;
-    setPlayingId(id);
+  const handleStopRecording = async () => {
+    setProcessingState('analyzing');
     try {
-        if (audioCache.current.has(text)) {
-            await playAudioFromBase64(audioCache.current.get(text)!);
-        } else {
-            // Try Gemini TTS first for quality
-            const base64 = await generateSpeech(text);
-            if (base64) {
-                audioCache.current.set(text, base64);
-                await playAudioFromBase64(base64);
-            } else {
-                // Fallback to browser TTS (Faster/Offline)
-                const speech = new SpeechSynthesisUtterance(text);
-                speech.lang = 'en-US';
-                window.speechSynthesis.speak(speech);
-            }
+        const base64Audio = await stopRecording();
+        
+        // 1. Analyze and get response text
+        const result = await analyzeAudioResponse(base64Audio, session.topic, session.history);
+        setAnalysis(result);
+        
+        // 2. Update History
+        const newHistory = [...session.history, { 
+            user: result.userTranscript, 
+            ai: result.replyText 
+        }];
+        onUpdate({ ...session, history: newHistory });
+
+        // 3. Generate and Play AI Audio
+        setProcessingState('speaking');
+        const speechBase64 = await generateSpeech(result.replyText);
+        setProcessingState('idle');
+        
+        if (speechBase64) {
+            await playAudioFromBase64(speechBase64);
         }
+        
     } catch (e) {
         console.error(e);
-        // Fallback safety
-        const speech = new SpeechSynthesisUtterance(text);
-        window.speechSynthesis.speak(speech);
-    } finally {
-        setPlayingId(null);
+        alert("处理对话时出错，请重试");
+        setProcessingState('idle');
     }
   };
 
-  const startRecording = async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                audioChunksRef.current.push(event.data);
-            }
-        };
-
-        mediaRecorder.onstop = async () => {
-            setState('processing');
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            
-            // Create playable URL for user review
-            const audioUrl = URL.createObjectURL(audioBlob);
-            setUserAudioUrl(audioUrl);
-
-            // Convert to Base64 for API
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            reader.onloadend = async () => {
-                const base64String = (reader.result as string).split(',')[1];
-                
-                // Call API
-                // If it's Free Talk start, we pass a special context instruction instead of the generic topic title
-                const topicContext = isFreeTalkStart ? "The user is initiating a conversation freely. Please respond naturally to whatever they say." : currentTopic;
-                
-                const result = await analyzeAudioResponse(base64String, topicContext, history);
-                setAnalysis(result);
-                setState('reviewing');
-            };
-            
-            // Stop tracks
-            stream.getTracks().forEach(track => track.stop());
-        };
-
-        mediaRecorder.start();
-        setState('recording');
-    } catch (e) {
-        console.error("Mic error", e);
-        alert("无法访问麦克风，请检查权限。");
-        setState('idle');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-    }
-  };
-
-  const handleContinue = () => {
-    if (analysis) {
-        // For Free Talk start, the "AI" turn was essentially "Silence/Listening", so we record it as such or empty
-        // to maintain the turn-taking structure.
-        const aiTurnContent = isFreeTalkStart ? "(Listening...)" : currentTopic;
-        
-        const newHistory = [...history, { user: analysis.userTranscript, ai: aiTurnContent }];
-        updateHistory(newHistory, analysis.replyText);
-        
-        setAnalysis(null);
-        setLastBetterVersion(null); 
-        if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
-        setUserAudioUrl(null);
-        setState('idle');
-    }
-  };
-
-  const handleTryAgain = () => {
-      // Save the better version so the user can see it while recording again
-      if (analysis?.betterVersion) {
-          setLastBetterVersion(analysis.betterVersion);
+  const playReply = async (text: string) => {
+      if (processingState === 'speaking') return;
+      setProcessingState('speaking');
+      try {
+          const speechBase64 = await generateSpeech(text);
+          if (speechBase64) {
+              await playAudioFromBase64(speechBase64);
+          }
+      } catch(e) {
+          console.error(e);
+      } finally {
+          setProcessingState('idle');
       }
-      
-      // Clear analysis and audio, go back to idle to record again for the SAME topic
-      setAnalysis(null);
-      if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
-      setUserAudioUrl(null);
-      setState('idle');
-  };
-
-  const playUserAudio = () => {
-      if (userAudioRef.current) {
-          userAudioRef.current.currentTime = 0;
-          userAudioRef.current.play();
-      }
-  };
-
-  const [savedChunks, setSavedChunks] = useState<Set<string>>(new Set());
-
-  const handleSaveChunk = (text: string) => {
-      onSaveVocab(text, 'word'); 
-      setSavedChunks(prev => new Set(prev).add(text));
   };
 
   return (
-    <div className="h-full flex flex-col bg-slate-950 text-slate-200 overflow-y-auto">
-      
+    <div className="flex flex-col h-full bg-slate-950 relative">
       {/* Header */}
-      <div className="px-4 py-3 shrink-0 border-b border-slate-900 bg-slate-950 sticky top-0 z-10 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-900 text-slate-400 hover:text-white transition-colors">
-                <ArrowRight className="rotate-180" size={20} />
-            </button>
-            <div className="flex flex-col">
-                <span className="font-semibold text-sm">模拟对话练习</span>
-                <span className="text-[10px] text-slate-500">进度自动保存</span>
-            </div>
-          </div>
-          <button 
-            onClick={onEndSession} 
-            className="text-red-400 hover:text-red-300 text-xs bg-red-900/10 px-3 py-1.5 rounded-full border border-red-900/20 flex items-center gap-1 transition-colors"
-          >
-              <X size={14} /> 结束话题
-          </button>
+      <div className="h-14 border-b border-slate-900 bg-slate-950/80 backdrop-blur-md flex items-center justify-between px-4 sticky top-0 z-10 shrink-0">
+         <div className="flex items-center gap-3 overflow-hidden">
+             <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                 <X size={20} />
+             </button>
+             <div className="flex items-center gap-2 overflow-hidden">
+                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+                 <span className="font-bold text-slate-200 truncate text-sm">{session.topic}</span>
+             </div>
+         </div>
+         <button onClick={() => setShowAnalysis(!showAnalysis)} className={`p-2 rounded-full transition-colors ${showAnalysis ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+             <Sparkles size={18} />
+         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center p-4 max-w-3xl mx-auto w-full gap-6 pb-20">
-          
-          {/* Target Vocabulary Display (Only if not empty) */}
-          {targetWords.length > 0 && (
-              <div className="w-full bg-slate-900/50 border border-indigo-500/20 rounded-xl p-3">
-                  <div className="flex items-center gap-2 mb-2 text-indigo-400 text-xs font-bold uppercase tracking-wide">
-                      <Target size={14} /> 本轮目标词汇
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                      {targetWords.map((item, i) => (
-                          <div key={i} className={`px-2 py-1 rounded text-xs flex items-center gap-2 border ${item.type === 'word' ? 'bg-slate-950 border-slate-800' : 'bg-indigo-950/30 border-indigo-500/20'}`}>
-                              <span className="text-slate-200 font-medium">{item.text}</span>
-                              <span className="text-slate-500 border-l border-slate-800 pl-2">{item.translation}</span>
-                          </div>
-                      ))}
-                  </div>
+      {/* Main Chat Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+          {session.history.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-[50vh] text-slate-500 space-y-4 opacity-50">
+                  <MessageSquare size={48} />
+                  <p className="text-sm">点击麦克风开始第一句对话</p>
               </div>
           )}
 
-          {/* AI Topic/Context Bubble */}
-          {!isFreeTalkStart ? (
-              <div className="w-full">
-                 <div className="text-xs text-slate-500 mb-2 uppercase tracking-wider font-bold flex justify-between items-center">
-                     <span className="flex items-center gap-1">
-                        {history.length === 0 ? <MapPin size={14} /> : <MessageSquare size={14} />}
-                        {history.length === 0 ? "当前场景 / 任务" : "AI 回复"}
-                     </span>
-                     {history.length > 0 && <span className="text-slate-600 bg-slate-900 px-2 py-0.5 rounded-full">第 {history.length + 1} 轮</span>}
-                 </div>
-                 
-                 <div className={`border rounded-2xl p-6 relative ${history.length === 0 ? 'bg-indigo-900/20 border-indigo-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
-                     <p className="text-lg md:text-xl font-medium text-slate-100 pr-10 leading-relaxed">
-                        {currentTopic}
-                     </p>
-                     <button 
-                        onClick={() => playTTS(currentTopic, 'topic')}
-                        disabled={!!playingId}
-                        className="absolute right-4 top-4 p-2 text-slate-500 hover:text-blue-400 bg-slate-900/50 rounded-full transition-colors disabled:opacity-50"
-                     >
-                         {playingId === 'topic' ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
-                     </button>
-                 </div>
-              </div>
-          ) : (
-              // Free Talk Start UI
-              <div className="w-full flex flex-col items-center py-6 animate-in fade-in slide-in-from-bottom-2">
-                  <div className="p-3 bg-purple-500/10 rounded-full mb-3 text-purple-400">
-                      <User size={32} />
+          {session.history.map((turn, idx) => (
+              <div key={idx} className="space-y-4">
+                  {/* User Bubble */}
+                  <div className="flex justify-end">
+                      <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-lg relative group">
+                          <p>{turn.user}</p>
+                          <div className="absolute -left-8 bottom-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <User size={16} className="text-slate-500" />
+                          </div>
+                      </div>
                   </div>
-                  <h2 className="text-xl font-bold text-white mb-1">你来开启话题</h2>
-                  <p className="text-slate-400 text-sm">点击下方录音，说说你想聊什么...</p>
-              </div>
-          )}
 
-          {/* Recording Interface (Only visible when not reviewing) */}
-          {state !== 'reviewing' && (
-              <div className="flex-1 flex flex-col items-center justify-center min-h-[200px] w-full">
-                  
-                  {/* Previous Advice (Visible during Retry) */}
-                  {lastBetterVersion && state === 'idle' && (
-                      <div className="mb-6 w-full max-w-md bg-emerald-900/20 border border-emerald-500/20 p-4 rounded-xl animate-in fade-in slide-in-from-top-2">
-                          <div className="text-emerald-500 text-xs font-bold mb-2 flex items-center gap-1">
-                              <Sparkles size={12} /> 上一次的参考表达 (建议照着读)
-                          </div>
-                          <p className="text-emerald-100/90 text-sm leading-relaxed">{lastBetterVersion}</p>
-                          <button 
-                            onClick={() => playTTS(lastBetterVersion, 'prev_better')}
-                            disabled={!!playingId}
-                            className="mt-2 text-xs flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
-                           >
-                              <Volume2 size={12} /> 播放示范
-                          </button>
-                      </div>
-                  )}
-
-                  {state === 'processing' ? (
-                      <div className="flex flex-col items-center gap-4 animate-pulse">
-                          <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
-                              <RefreshCcw className="animate-spin text-slate-400" />
-                          </div>
-                          <p className="text-slate-400 text-sm">AI 正在分析你的回答...</p>
-                      </div>
-                  ) : (
-                      <div className="flex flex-col items-center gap-6">
-                          <div className={`relative transition-all duration-300 ${state === 'recording' ? 'scale-110' : 'scale-100'}`}>
-                              {state === 'recording' && (
-                                  <div className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-20 pointer-events-none"></div>
-                              )}
-                              <button
-                                onClick={state === 'recording' ? stopRecording : startRecording}
-                                className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-colors relative z-10 ${
-                                    state === 'recording' 
-                                    ? 'bg-red-500 text-white' 
-                                    : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white hover:shadow-blue-500/25'
-                                }`}
-                              >
-                                  {state === 'recording' ? <Square size={32} fill="currentColor" /> : <Mic size={32} />}
+                  {/* AI Bubble */}
+                  <div className="flex justify-start">
+                      <div className="bg-slate-800 border border-slate-700 text-slate-200 px-4 py-3 rounded-2xl rounded-tl-sm max-w-[90%] shadow-md group">
+                          <p className="leading-relaxed">{turn.ai}</p>
+                          <div className="mt-2 flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => playReply(turn.ai)} className="p-1.5 rounded-full hover:bg-slate-700 text-slate-400 hover:text-blue-400 transition-colors">
+                                  <Volume2 size={16} />
                               </button>
                           </div>
-                          <p className="text-slate-500 text-sm font-medium">
-                              {state === 'recording' ? '正在录音... 点击停止' : (isFreeTalkStart ? '点击开始发起对话' : '点击开始回答')}
-                          </p>
-                      </div>
-                  )}
-              </div>
-          )}
-
-          {/* Analysis Result (Only visible when reviewing) */}
-          {state === 'reviewing' && analysis && (
-              <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-                      
-                      {/* Header Score */}
-                      <div className="bg-slate-800/50 px-6 py-4 flex justify-between items-center border-b border-slate-800">
-                          <div className="flex items-center gap-2">
-                              <Sparkles size={18} className="text-amber-400" />
-                              <span className="font-bold text-slate-200">口语分析报告</span>
-                          </div>
-                          <div className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              analysis.score > 80 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-orange-500/20 text-orange-400'
-                          }`}>
-                              得分: {analysis.score}
-                          </div>
-                      </div>
-
-                      <div className="p-6 space-y-8">
-                          
-                          {/* User Said & Playback */}
-                          <div>
-                              <div className="text-xs text-slate-500 mb-2 flex justify-between items-center">
-                                  <span>你的录音</span>
-                                  {userAudioUrl && (
-                                      <button 
-                                        onClick={playUserAudio}
-                                        className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-[10px]"
-                                      >
-                                          <PlayCircle size={12} /> 重听原音
-                                      </button>
-                                  )}
-                              </div>
-                              <p className="text-slate-300 bg-slate-950 p-3 rounded-lg border border-slate-800/50 italic mb-2">
-                                  "{analysis.userTranscript}"
-                              </p>
-                              {userAudioUrl && (
-                                  <audio ref={userAudioRef} src={userAudioUrl} className="hidden" />
-                              )}
-                              
-                              {/* Pronunciation Feedback */}
-                              <div className="mt-3 bg-purple-500/5 border border-purple-500/20 p-3 rounded-lg">
-                                  <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider mb-1">发音与语调</div>
-                                  <p className="text-sm text-purple-200/80 leading-relaxed">{analysis.pronunciation}</p>
-                              </div>
-                          </div>
-
-                          {/* Better Version */}
-                          <div>
-                              <div className="text-xs text-emerald-500 mb-2 font-bold flex items-center gap-1">
-                                  <AlertCircle size={12} /> 地道改写
-                              </div>
-                              <div className="flex items-start gap-3 mb-3">
-                                <p className="text-lg text-emerald-100 font-medium">
-                                    {analysis.betterVersion}
-                                </p>
-                                <button 
-                                    onClick={() => playTTS(analysis.betterVersion, 'better')}
-                                    disabled={!!playingId}
-                                    className="mt-1 text-emerald-600 hover:text-emerald-400 disabled:opacity-50 shrink-0"
-                                >
-                                    {playingId === 'better' ? <Loader2 size={16} className="animate-spin" /> : <Volume2 size={16} />}
-                                </button>
-                              </div>
-
-                              {/* Chunks */}
-                              {analysis.chunks && analysis.chunks.length > 0 && (
-                                  <div className="flex flex-wrap gap-2 mt-2">
-                                      {analysis.chunks.map((chunk, idx) => (
-                                          <button
-                                            key={idx}
-                                            onClick={() => handleSaveChunk(chunk)}
-                                            disabled={savedChunks.has(chunk)}
-                                            className={`text-xs flex items-center gap-1 px-2 py-1.5 rounded-md border transition-colors ${
-                                                savedChunks.has(chunk)
-                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                                            }`}
-                                          >
-                                              {savedChunks.has(chunk) ? <Check size={10} /> : <PlusCircle size={10} />}
-                                              {chunk}
-                                          </button>
-                                      ))}
-                                  </div>
-                              )}
-                          </div>
-
-                          {/* Grammar Analysis */}
-                          <div className="bg-blue-900/10 border border-blue-500/20 p-4 rounded-xl">
-                              <p className="text-sm text-blue-200 leading-relaxed">
-                                  💡 {analysis.analysis}
-                              </p>
-                          </div>
-
-                      </div>
-
-                      {/* Footer Action - Decision Point */}
-                      <div className="p-4 bg-slate-950 border-t border-slate-900 flex flex-col sm:flex-row justify-between items-center gap-3">
-                          <button
-                            onClick={handleTryAgain}
-                            className="w-full sm:w-auto text-slate-400 hover:text-white px-4 py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors bg-slate-900 hover:bg-slate-800 border border-slate-800"
-                          >
-                              <RotateCcw size={16} /> 不满意，重录
-                          </button>
-                          
-                          <button 
-                            onClick={handleContinue}
-                            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-blue-900/20"
-                          >
-                              <MessageSquare size={18} /> 发送给 AI (Continue)
-                          </button>
                       </div>
                   </div>
               </div>
+          ))}
+          
+          {analysis && showAnalysis && (
+              <div className="bg-slate-900 border border-blue-500/30 rounded-2xl p-5 mt-4 animate-in slide-in-from-bottom-4 shadow-xl">
+                  <div className="flex items-center gap-2 mb-3 text-blue-400 font-bold text-sm uppercase tracking-wider">
+                      <Target size={16} /> 诊断建议
+                  </div>
+                  
+                  <div className="space-y-4">
+                      <div>
+                          <div className="text-xs text-slate-500 mb-1">更地道的表达：</div>
+                          <p className="text-emerald-400 font-medium text-sm bg-emerald-950/30 p-2 rounded-lg border border-emerald-500/20">{analysis.betterVersion}</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <div className="text-xs text-slate-500 mb-1">发音建议：</div>
+                              <p className="text-slate-300 text-xs">{analysis.pronunciation}</p>
+                          </div>
+                          <div>
+                              <div className="text-xs text-slate-500 mb-1">综合评分：</div>
+                              <div className="text-xl font-bold text-amber-400">{analysis.score}<span className="text-xs text-slate-600 font-normal">/100</span></div>
+                          </div>
+                      </div>
+
+                      {analysis.chunks && analysis.chunks.length > 0 && (
+                          <div>
+                              <div className="text-xs text-slate-500 mb-2">推荐积累词汇：</div>
+                              <div className="flex flex-wrap gap-2">
+                                  {analysis.chunks.map((chunk, i) => (
+                                      <button key={i} onClick={() => onSaveVocab({ text: chunk, type: 'word' })} className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors border border-slate-700 hover:border-blue-500/50">
+                                          <PlusCircle size={12} /> {chunk}
+                                      </button>
+                                  ))}
+                              </div>
+                          </div>
+                      )}
+                  </div>
+              </div>
           )}
+          
+          {/* Invisible Audio Element for User Playback */}
+          <audio ref={userAudioRef} src={userAudioUrl || ''} onEnded={() => {}} className="hidden" />
+          
+          <div ref={messagesEndRef} className="h-4" />
+      </div>
+
+      {/* Control Bar */}
+      <div className="p-4 bg-slate-950 border-t border-slate-900 shrink-0">
+          <div className="flex items-center justify-center gap-6">
+              {processingState === 'idle' ? (
+                  <>
+                    <button 
+                        onClick={() => {
+                            if (isRecording) handleStopRecording();
+                            else startRecording();
+                        }}
+                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl hover:scale-105 active:scale-95 ${
+                            isRecording 
+                            ? 'bg-red-500 shadow-red-500/30' 
+                            : 'bg-blue-600 shadow-blue-500/30'
+                        }`}
+                    >
+                        {isRecording ? (
+                            <div className="w-6 h-6 bg-white rounded-md animate-pulse" />
+                        ) : (
+                            <Mic size={28} className="text-white" />
+                        )}
+                    </button>
+                    {userAudioUrl && !isRecording && (
+                        <button onClick={() => userAudioRef.current?.play()} className="p-4 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                            <PlayCircle size={24} />
+                        </button>
+                    )}
+                  </>
+              ) : (
+                  <div className="flex items-center gap-3 px-6 py-4 bg-slate-900 rounded-full border border-slate-800">
+                      <Loader2 className="animate-spin text-blue-500" />
+                      <span className="text-sm font-medium text-slate-400">
+                          {processingState === 'analyzing' ? '正在分析语音...' : 'AI 正在回复...'}
+                      </span>
+                  </div>
+              )}
+          </div>
+          <div className="text-center mt-3 text-xs text-slate-600 font-medium">
+              {isRecording ? "点击停止并发送" : "点击麦克风开始说话"}
+          </div>
       </div>
     </div>
   );

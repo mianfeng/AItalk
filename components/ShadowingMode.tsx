@@ -1,8 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Sparkles, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Mic, Square, Volume2, RefreshCcw, Loader2, CheckCircle, RotateCcw, Info, ArrowRight, Gauge, Zap } from 'lucide-react';
 import { generateSpeech, evaluatePronunciation } from '../services/contentGen';
-import { pcmToWav, getPreferredVoice, sanitizeForTTS } from '../services/audioUtils';
+import { pcmToWav, sanitizeForTTS } from '../services/audioUtils';
+import { useSpeech } from '../hooks/useSpeech';
+import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
 interface ShadowingModeProps {
   onBack: () => void;
@@ -11,12 +13,11 @@ interface ShadowingModeProps {
 export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const [inputText, setInputText] = useState('');
   const [practiceText, setPracticeText] = useState('');
+  // Merged state for view management: input -> practice -> processing -> result
   const [state, setState] = useState<'input' | 'practice' | 'processing' | 'result'>('input');
   
   // Voice Mode: 'local' (instant) or 'ai' (quality)
   const [voiceMode, setVoiceMode] = useState<'local' | 'ai'>('local');
-  const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const [voiceLoadingStatus, setVoiceLoadingStatus] = useState('初始化...');
   
   // Audio State
   const [aiAudioUrl, setAiAudioUrl] = useState<string | null>(null);
@@ -30,76 +31,21 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
   const [localProgress, setLocalProgress] = useState(0); // 0 to 100
   const localCharOffsetRef = useRef(0);
   const isSeekingRef = useRef(false);
-  const localTimerRef = useRef<number | null>(null);
   
-  // User Recording state
-  const [isRecording, setIsRecording] = useState(false);
+  // Evaluation State
   const [evaluation, setEvaluation] = useState<{ score: number, feedback: string } | null>(null);
-  const [userAudioUrl, setUserAudioUrl] = useState<string | null>(null);
   
   const aiAudioRef = useRef<HTMLAudioElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const userAudioRef = useRef<HTMLAudioElement>(null);
-  const activeStreamRef = useRef<MediaStream | null>(null);
 
-  // Robust Voice Loading for Mobile
-  useEffect(() => {
-    let retryCount = 0;
-    const maxRetries = 10;
-
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        const best = getPreferredVoice(voices, localStorage.getItem('lingua_voice_uri'));
-        setPreferredVoice(best);
-        setVoiceLoadingStatus(best ? best.name : '系统默认');
-        return true;
-      }
-      return false;
-    };
-
-    if (!loadVoices()) {
-      setVoiceLoadingStatus('正在查找引擎...');
-    }
-
-    window.speechSynthesis.onvoiceschanged = () => {
-      loadVoices();
-    };
-
-    const timer = setInterval(() => {
-      if (loadVoices() || retryCount >= maxRetries) {
-        clearInterval(timer);
-      }
-      retryCount++;
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-      window.speechSynthesis.onvoiceschanged = null;
-      if (localTimerRef.current) window.clearInterval(localTimerRef.current);
-    };
-  }, []);
-
-  const stopAllRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (activeStreamRef.current) {
-      activeStreamRef.current.getTracks().forEach(track => track.stop());
-      activeStreamRef.current = null;
-    }
-    setIsRecording(false);
-  };
+  // Custom Hooks
+  const { speak, isPlaying: localSpeechPlaying, cancel: cancelLocalSpeech, voiceName } = useSpeech();
+  const { isRecording, startRecording, stopRecording, audioUrl: userAudioUrl } = useAudioRecorder();
 
   const resetSession = () => {
-    stopAllRecording();
-    window.speechSynthesis.cancel();
-    if (localTimerRef.current) window.clearInterval(localTimerRef.current);
+    cancelLocalSpeech();
     if (aiAudioUrl) URL.revokeObjectURL(aiAudioUrl);
-    if (userAudioUrl) URL.revokeObjectURL(userAudioUrl);
     setAiAudioUrl(null);
-    setUserAudioUrl(null);
     setEvaluation(null);
     setAiIsPlaying(false);
     setAiCurrentTime(0);
@@ -110,7 +56,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
 
   const handleStartPractice = () => {
     if (!inputText.trim()) return;
-    // 移动端优化：进入练习前进行文本清洗，确保后续进度计算基于规范文本
     const cleaned = sanitizeForTTS(inputText);
     setPracticeText(cleaned);
     setState('practice');
@@ -138,88 +83,43 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     return null;
   };
 
-  const startLocalProgressTimer = (startIndex: number) => {
-    if (localTimerRef.current) window.clearInterval(localTimerRef.current);
-    
-    const charsPerSecond = 15 * aiSpeed;
-    const interval = 100;
-    const charsPerTick = charsPerSecond * (interval / 1000);
-    
-    let currentOffset = startIndex;
-    
-    localTimerRef.current = window.setInterval(() => {
-        if (!aiIsPlaying) {
-            window.clearInterval(localTimerRef.current!);
-            return;
-        }
-        currentOffset += charsPerTick;
-        if (currentOffset >= practiceText.length) {
-            setLocalProgress(100);
-            window.clearInterval(localTimerRef.current!);
-            return;
-        }
-        const prog = (currentOffset / practiceText.length) * 100;
-        setLocalProgress(prog);
-        localCharOffsetRef.current = Math.floor(currentOffset);
-    }, interval);
-  };
-
   const startLocalSpeech = (startIndex: number) => {
-    // 移动端优化：彻底停止之前的发音
-    window.speechSynthesis.cancel();
-    if (localTimerRef.current) window.clearInterval(localTimerRef.current);
+    cancelLocalSpeech();
     
-    // 移动端优化：延迟 50ms 等待引擎状态重置
+    // Slight delay to ensure clean state
     setTimeout(() => {
         const remainingText = practiceText.substring(startIndex);
         if (!remainingText.trim()) {
-            setAiIsPlaying(false);
             setLocalProgress(100);
             return;
         }
 
-        const utterance = new SpeechSynthesisUtterance(remainingText);
-        utterance.lang = 'en-US';
-        // 移动端稍微降低语速能显著改善清晰度
-        utterance.rate = aiSpeed * 0.95;
-        
-        if (preferredVoice) {
-            utterance.voice = preferredVoice;
-        }
-
-        utterance.onboundary = (event) => {
-          if (event.name === 'word' && !isSeekingRef.current) {
-            const absoluteCharIndex = startIndex + event.charIndex;
-            const progress = (absoluteCharIndex / practiceText.length) * 100;
-            setLocalProgress(progress);
-            localCharOffsetRef.current = absoluteCharIndex;
-          }
-        };
-        
-        utterance.onend = () => {
-          setAiIsPlaying(false);
-          setLocalProgress(100);
-          localCharOffsetRef.current = 0;
-          if (localTimerRef.current) window.clearInterval(localTimerRef.current);
-        };
-
-        utterance.onerror = () => {
-            setAiIsPlaying(false);
-            if (localTimerRef.current) window.clearInterval(localTimerRef.current);
-        };
-
+        speak(
+            remainingText, 
+            aiSpeed * 0.95, // Slightly slower for better clarity
+            () => { // onEnd
+                setAiIsPlaying(false);
+                setLocalProgress(100);
+                localCharOffsetRef.current = 0;
+            },
+            (event) => { // onBoundary
+                if (event.name === 'word' && !isSeekingRef.current) {
+                    const absoluteCharIndex = startIndex + event.charIndex;
+                    const progress = (absoluteCharIndex / practiceText.length) * 100;
+                    setLocalProgress(progress);
+                    localCharOffsetRef.current = absoluteCharIndex;
+                }
+            }
+        );
         setAiIsPlaying(true);
-        window.speechSynthesis.speak(utterance);
-        startLocalProgressTimer(startIndex);
     }, 50);
   };
 
   const toggleAiPlay = async () => {
     if (voiceMode === 'local') {
       if (aiIsPlaying) {
-        window.speechSynthesis.cancel();
+        cancelLocalSpeech();
         setAiIsPlaying(false);
-        if (localTimerRef.current) window.clearInterval(localTimerRef.current);
       } else {
         const startFrom = localProgress >= 99 ? 0 : localCharOffsetRef.current;
         if (startFrom === 0) setLocalProgress(0);
@@ -268,6 +168,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     if (aiAudioRef.current) {
       aiAudioRef.current.playbackRate = aiSpeed;
     }
+    // Restart local speech if speed changes while playing
     if (voiceMode === 'local' && aiIsPlaying) {
         startLocalSpeech(localCharOffsetRef.current);
     }
@@ -280,51 +181,27 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
     setAiSpeed(speeds[nextIndex]);
   };
 
-  const toggleRecording = async () => {
+  const handleToggleRecording = async () => {
     if (aiIsPlaying) {
-        if (voiceMode === 'local') window.speechSynthesis.cancel();
+        if (voiceMode === 'local') cancelLocalSpeech();
         else aiAudioRef.current?.pause();
         setAiIsPlaying(false);
-        if (localTimerRef.current) window.clearInterval(localTimerRef.current);
     }
 
     if (isRecording) {
-      stopAllRecording();
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        activeStreamRef.current = stream;
-        const recorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = recorder;
-        audioChunksRef.current = [];
-
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
-
-        recorder.onstop = async () => {
-          setState('processing');
-          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const url = URL.createObjectURL(blob);
-          setUserAudioUrl(url);
-
-          const reader = new FileReader();
-          reader.readAsDataURL(blob);
-          reader.onloadend = async () => {
-            const base64 = (reader.result as string).split(',')[1];
+        setState('processing');
+        try {
+            const base64 = await stopRecording();
             const res = await evaluatePronunciation(base64, practiceText);
             setEvaluation(res);
             setState('result');
-          };
-          stream.getTracks().forEach(t => t.stop());
-          activeStreamRef.current = null;
-        };
-
-        recorder.start();
-        setIsRecording(true);
-      } catch (e) {
-        alert("无法访问麦克风，请检查浏览器权限设置");
-      }
+        } catch(e) {
+            console.error(e);
+            alert("录音失败，请重试");
+            setState('practice');
+        }
+    } else {
+        startRecording();
     }
   };
 
@@ -348,7 +225,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
             <div className="bg-indigo-900/10 border border-indigo-500/20 p-4 rounded-xl flex items-start gap-3">
               <Info className="text-indigo-400 shrink-0 mt-1" size={18} />
               <div className="text-sm text-indigo-200/70">
-                输入练习句子。应用会自动探测当前系统的 <b>{voiceLoadingStatus}</b>。
+                输入练习句子。当前使用语音引擎：<b>{voiceName}</b>。
               </div>
             </div>
             
@@ -378,7 +255,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                 <span className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-full text-[10px] font-bold text-slate-400 uppercase tracking-tighter">示范文本</span>
                 <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 scale-90">
                     <button 
-                        onClick={() => { setVoiceMode('local'); window.speechSynthesis.cancel(); setAiIsPlaying(false); }}
+                        onClick={() => { setVoiceMode('local'); cancelLocalSpeech(); setAiIsPlaying(false); }}
                         className={`px-2 py-1 rounded text-[10px] font-bold transition-all flex items-center gap-1 ${voiceMode === 'local' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
                     >
                         <Zap size={10} /> 极速
@@ -444,7 +321,6 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                             {voiceMode === 'local' && (
                                 <div className="flex flex-col items-end">
                                     <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded">极速模式</span>
-                                    <span className="text-[8px] text-slate-600 truncate max-w-[80px]">{voiceLoadingStatus}</span>
                                 </div>
                             )}
                         </div>
@@ -477,7 +353,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                   <div className="relative">
                     {isRecording && <div className="absolute inset-0 bg-red-500 rounded-full animate-ping opacity-20"></div>}
                     <button
-                      onClick={toggleRecording}
+                      onClick={handleToggleRecording}
                       className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-all relative z-10 ${
                         isRecording ? 'bg-red-500 text-white' : 'bg-purple-600 text-white hover:scale-105 active:scale-95'
                       }`}
@@ -521,7 +397,7 @@ export const ShadowingMode: React.FC<ShadowingModeProps> = ({ onBack }) => {
                     
                     <button
                       onClick={() => {
-                        stopAllRecording();
+                        cancelLocalSpeech();
                         setEvaluation(null);
                         setState('practice');
                       }}

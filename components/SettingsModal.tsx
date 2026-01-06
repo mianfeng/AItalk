@@ -1,7 +1,8 @@
-import React, { useRef, useState, useEffect } from 'react';
+
+import React, { useRef, useState } from 'react';
 import { X, Download, FileJson, FileSpreadsheet, Upload, AlertTriangle, CheckCircle, ArrowLeft, Volume2, PieChart, Star, Mic, RefreshCw, Copy, ClipboardCheck, Share2, Info } from 'lucide-react';
 import { VocabularyItem, DailyStats, BackupData } from '../types';
-import { getPreferredVoice } from '../services/audioUtils';
+import { useSpeech } from '../hooks/useSpeech';
 
 interface SettingsModalProps {
   show: boolean;
@@ -26,33 +27,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [viewMode, setViewMode] = useState<'menu' | 'list' | 'voice' | 'data'>('menu');
   const [backupInput, setBackupInput] = useState('');
   
-  // Voice Settings State
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
-
-  useEffect(() => {
-    if (show) {
-        const load = () => {
-            const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
-            setAvailableVoices(voices);
-            const savedURI = localStorage.getItem('lingua_voice_uri');
-            if (savedURI && voices.some(v => v.voiceURI === savedURI)) {
-                setSelectedVoiceURI(savedURI);
-            } else {
-                const best = getPreferredVoice(voices, null);
-                if (best) setSelectedVoiceURI(best.voiceURI);
-            }
-        };
-        load();
-        window.speechSynthesis.onvoiceschanged = load;
-    }
-  }, [show]);
+  const { availableVoices, setVoice, preferredVoice, voiceName, speak, cancel } = useSpeech();
 
   if (!show) return null;
-
-  // Fix: Defined 'voiceLoadingStatus' to resolve the compilation error.
-  const selectedVoice = availableVoices.find(v => v.voiceURI === selectedVoiceURI);
-  const voiceLoadingStatus = selectedVoice ? selectedVoice.name : (availableVoices.length > 0 ? '系统默认' : '正在加载...');
 
   const learnedCount = vocabList.filter(v => v.masteryLevel >= 1).length;
   const learnedPercentage = totalRepoCount > 0 ? Math.round((learnedCount / totalRepoCount) * 100) : 0;
@@ -102,7 +79,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 text: '这是我的英语学习进度备份文件。'
             });
         } catch (e) {
-            handleExportJSON(); // 失败回退到传统下载
+            handleExportJSON(); 
         }
     } else {
         handleExportJSON();
@@ -197,7 +174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400"><Mic size={20} /></div>
                             <div className="text-left">
                                 <div className="font-medium text-slate-200">发音设置</div>
-                                <div className="text-[10px] text-slate-500">当前：{voiceLoadingStatus}</div>
+                                <div className="text-[10px] text-slate-500">当前：{voiceName}</div>
                             </div>
                         </div>
                         <ArrowLeft size={18} className="text-slate-500 rotate-180" />
@@ -293,26 +270,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <button
                                 key={voice.voiceURI}
                                 onClick={() => {
-                                    setSelectedVoiceURI(voice.voiceURI);
-                                    localStorage.setItem('lingua_voice_uri', voice.voiceURI);
-                                    window.speechSynthesis.cancel();
-                                    const u = new SpeechSynthesisUtterance("Selection updated.");
-                                    u.voice = voice;
-                                    window.speechSynthesis.speak(u);
+                                    setVoice(voice.voiceURI);
+                                    speak("Selection updated.");
                                 }}
                                 className={`w-full p-4 rounded-xl flex items-center justify-between text-left transition-all border ${
-                                    selectedVoiceURI === voice.voiceURI 
+                                    preferredVoice?.voiceURI === voice.voiceURI 
                                     ? 'bg-blue-600/20 border-blue-500/50' 
                                     : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
                                 }`}
                               >
                                   <div className="min-w-0 pr-2">
-                                      <div className={`font-bold truncate ${selectedVoiceURI === voice.voiceURI ? 'text-blue-300' : 'text-slate-200'}`}>
+                                      <div className={`font-bold truncate ${preferredVoice?.voiceURI === voice.voiceURI ? 'text-blue-300' : 'text-slate-200'}`}>
                                           {voice.name}
                                       </div>
                                       <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">{voice.lang}</div>
                                   </div>
-                                  {selectedVoiceURI === voice.voiceURI && <CheckCircle size={18} className="text-blue-400 shrink-0" />}
+                                  {preferredVoice?.voiceURI === voice.voiceURI && <CheckCircle size={18} className="text-blue-400 shrink-0" />}
                               </button>
                           ))
                       )}
@@ -335,14 +308,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   <div className="text-sm text-emerald-400 mt-1">{item.translation}</div>
                               </div>
                               <button 
-                                onClick={() => {
-                                    window.speechSynthesis.cancel();
-                                    const u = new SpeechSynthesisUtterance(item.text);
-                                    u.lang = 'en-US';
-                                    const voice = availableVoices.find(v => v.voiceURI === selectedVoiceURI);
-                                    if (voice) u.voice = voice;
-                                    window.speechSynthesis.speak(u);
-                                }}
+                                onClick={() => speak(item.text)}
                                 className="p-3 bg-slate-800 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
                               >
                                   <Volume2 size={20} />

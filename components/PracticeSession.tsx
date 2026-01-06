@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
 import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge } from 'lucide-react';
-import { getPreferredVoice, sanitizeForTTS } from '../services/audioUtils';
+import { sanitizeForTTS } from '../services/audioUtils';
+import { useSpeech } from '../hooks/useSpeech';
 
 interface PracticeSessionProps {
   exercises: PracticeExercise[];
@@ -17,7 +18,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [shuffledOptions, setShuffledOptions] = useState<string[]>([]);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
   
   // Speech Rate State (persisted)
@@ -26,10 +26,11 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     return saved ? parseFloat(saved) : 1.0;
   });
 
+  const { speak, isPlaying, cancel: cancelSpeech } = useSpeech();
+
   const triggeredPrefetchRef = useRef(false);
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
   const [isFinished, setIsFinished] = useState(false);
-  const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   const vocabMap = useMemo(() => {
     const saved = localStorage.getItem('lingua_vocab');
@@ -37,17 +38,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     const list: VocabularyItem[] = JSON.parse(saved);
     return new Map(list.map(v => [v.text.toLowerCase(), { level: v.masteryLevel, pronunciation: v.pronunciation || "" }]));
   }, [isFinished, showExplanation]);
-
-  useEffect(() => {
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const savedURI = localStorage.getItem('lingua_voice_uri');
-      const bestVoice = getPreferredVoice(voices, savedURI);
-      if (bestVoice) setPreferredVoice(bestVoice);
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-  }, []);
 
   const currentExercise = exercises[currentIndex];
 
@@ -124,40 +114,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   const playTTS = (text: string, isFullSentence = false) => {
     if (!text) return;
+    if (!isFullSentence) setPlayingWord(text);
     
-    const cleanText = sanitizeForTTS(text);
-
-    if (isFullSentence) { 
-        if (isPlaying) return; 
-        setIsPlaying(true); 
-    } else { 
-        setPlayingWord(text); 
-    }
-
-    window.speechSynthesis.cancel();
-    
-    setTimeout(() => {
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = 'en-US';
-        
-        // Use user-defined speechRate for sentences
-        utterance.rate = isFullSentence ? speechRate : 1.0;
-        
-        if (preferredVoice) {
-            utterance.voice = preferredVoice;
-        }
-        
-        utterance.onend = () => { 
-            if (isFullSentence) setIsPlaying(false); 
-            else setPlayingWord(null); 
-        };
-        utterance.onerror = () => { 
-            if (isFullSentence) setIsPlaying(false); 
-            else setPlayingWord(null); 
-        };
-        
-        window.speechSynthesis.speak(utterance);
-    }, 50);
+    speak(
+        text, 
+        isFullSentence ? speechRate : 1.0, 
+        () => setPlayingWord(null) // onEnd
+    );
   };
 
   const renderSentenceWithSlots = () => {

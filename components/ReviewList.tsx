@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { VocabularyItem } from '../types';
 import { ArrowLeft, Volume2, Loader2 } from 'lucide-react';
-import { getPreferredVoice } from '../services/audioUtils';
+import { useSpeech } from '../hooks/useSpeech';
 
 interface ReviewListProps {
   items: VocabularyItem[];
@@ -11,39 +11,17 @@ interface ReviewListProps {
 
 export const ReviewList: React.FC<ReviewListProps> = ({ items, onBack }) => {
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [preferredVoice, setPreferredVoice] = useState<SpeechSynthesisVoice | null>(null);
-
-  useEffect(() => {
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const savedURI = localStorage.getItem('lingua_voice_uri');
-      const bestVoice = getPreferredVoice(voices, savedURI);
-      if (bestVoice) setPreferredVoice(bestVoice);
-    };
-
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-  }, []);
+  const { speak, cancel } = useSpeech();
 
   const playTTS = (text: string, id: string) => {
-    if (playingId) {
-        window.speechSynthesis.cancel();
+    if (playingId === id) {
+        cancel();
         setPlayingId(null);
         return;
     }
+    
     setPlayingId(id);
-    
-    window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = 'en-US';
-    if (preferredVoice) {
-        speech.voice = preferredVoice;
-    }
-    
-    speech.onend = () => setPlayingId(null);
-    speech.onerror = () => setPlayingId(null);
-    
-    window.speechSynthesis.speak(speech);
+    speak(text, 1.0, () => setPlayingId(null));
   };
 
   return (
