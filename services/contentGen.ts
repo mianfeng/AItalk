@@ -261,7 +261,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   - "targetWordPronunciations": Standard IPA symbols for the 3 target words.
   - "options": The 3 correct words plus 2-3 distractors (total 5-6 individual strings).
   - "sentenceZh": Natural Chinese translation.
-  - "explanation": A helpful teaching explanation in CHINESE, Focus on collocations and why synonyms don't fit.;
+  - "explanation": A helpful teaching explanation in CHINESE,  Focus on collocations and why synonyms don't fit.`;
 
   try {
     const response = await ai.models.generateContent({
