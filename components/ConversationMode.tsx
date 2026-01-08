@@ -23,7 +23,6 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
   // Audio Hooks
   const { isRecording, startRecording, stopRecording, audioUrl: userAudioUrl } = useAudioRecorder();
   
-  // Note: We use useSpeech for reading text, but Gemini's direct audio response is handled by playAudioFromBase64
   const { speak, isPlaying: isTTSPlaying, cancel: cancelTTS } = useSpeech();
 
   const userAudioRef = useRef<HTMLAudioElement>(null);
@@ -42,18 +41,15 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
     try {
         const base64Audio = await stopRecording();
         
-        // 1. Analyze and get response text
         const result = await analyzeAudioResponse(base64Audio, session.topic, session.history);
         setAnalysis(result);
         
-        // 2. Update History
         const newHistory = [...session.history, { 
             user: result.userTranscript, 
             ai: result.replyText 
         }];
         onUpdate({ ...session, history: newHistory });
 
-        // 3. Generate and Play AI Audio
         setProcessingState('speaking');
         const speechBase64 = await generateSpeech(result.replyText);
         setProcessingState('idle');
@@ -85,19 +81,19 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 relative">
-      {/* Header */}
-      <div className="h-14 border-b border-slate-900 bg-slate-950/80 backdrop-blur-md flex items-center justify-between px-4 sticky top-0 z-10 shrink-0">
+    <div className="flex flex-col h-full relative">
+      {/* Glass Header */}
+      <div className="h-16 shrink-0 border-b border-white/5 bg-slate-900/60 backdrop-blur-xl flex items-center justify-between px-4 sticky top-0 z-10">
          <div className="flex items-center gap-3 overflow-hidden">
-             <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+             <button onClick={onBack} className="p-2 -ml-2 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
                  <X size={20} />
              </button>
              <div className="flex items-center gap-2 overflow-hidden">
-                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
-                 <span className="font-bold text-slate-200 truncate text-sm">{session.topic}</span>
+                 <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                 <span className="font-bold text-slate-100 truncate text-sm">{session.topic}</span>
              </div>
          </div>
-         <button onClick={() => setShowAnalysis(!showAnalysis)} className={`p-2 rounded-full transition-colors ${showAnalysis ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+         <button onClick={() => setShowAnalysis(!showAnalysis)} className={`p-2 rounded-full transition-all ${showAnalysis ? 'bg-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]' : 'bg-slate-800/50 text-slate-400 border border-white/5'}`}>
              <Sparkles size={18} />
          </button>
       </div>
@@ -105,30 +101,32 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
       {/* Main Chat Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
           {session.history.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-[50vh] text-slate-500 space-y-4 opacity-50">
-                  <MessageSquare size={48} />
-                  <p className="text-sm">点击麦克风开始第一句对话</p>
+              <div className="flex flex-col items-center justify-center h-[50vh] text-slate-600 space-y-4">
+                  <div className="p-6 bg-white/5 rounded-full border border-white/5">
+                    <MessageSquare size={40} className="text-slate-500" />
+                  </div>
+                  <p className="text-sm font-medium">点击下方麦克风开始第一句对话</p>
               </div>
           )}
 
           {session.history.map((turn, idx) => (
               <div key={idx} className="space-y-4">
-                  {/* User Bubble */}
+                  {/* User Bubble - Vibrant Gradient */}
                   <div className="flex justify-end">
-                      <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-lg relative group">
+                      <div className="bg-gradient-to-br from-cyan-600 to-blue-600 text-white px-5 py-3 rounded-2xl rounded-tr-sm max-w-[85%] shadow-lg relative group border border-white/10">
                           <p>{turn.user}</p>
                           <div className="absolute -left-8 bottom-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <User size={16} className="text-slate-500" />
+                              <User size={16} className="text-slate-600" />
                           </div>
                       </div>
                   </div>
 
-                  {/* AI Bubble */}
+                  {/* AI Bubble - Glass */}
                   <div className="flex justify-start">
-                      <div className="bg-slate-800 border border-slate-700 text-slate-200 px-4 py-3 rounded-2xl rounded-tl-sm max-w-[90%] shadow-md group">
+                      <div className="bg-slate-800/60 backdrop-blur-md border border-white/5 text-slate-200 px-5 py-3 rounded-2xl rounded-tl-sm max-w-[90%] shadow-md group">
                           <p className="leading-relaxed">{turn.ai}</p>
                           <div className="mt-2 flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => playReply(turn.ai)} className="p-1.5 rounded-full hover:bg-slate-700 text-slate-400 hover:text-blue-400 transition-colors">
+                              <button onClick={() => playReply(turn.ai)} className="p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition-colors">
                                   <Volume2 size={16} />
                               </button>
                           </div>
@@ -138,34 +136,34 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
           ))}
           
           {analysis && showAnalysis && (
-              <div className="bg-slate-900 border border-blue-500/30 rounded-2xl p-5 mt-4 animate-in slide-in-from-bottom-4 shadow-xl">
-                  <div className="flex items-center gap-2 mb-3 text-blue-400 font-bold text-sm uppercase tracking-wider">
+              <div className="glass-card border-l-4 border-l-cyan-500 rounded-r-2xl p-5 mt-4 animate-in slide-in-from-bottom-4 shadow-xl mx-2">
+                  <div className="flex items-center gap-2 mb-4 text-cyan-400 font-bold text-sm uppercase tracking-wider">
                       <Target size={16} /> 诊断建议
                   </div>
                   
                   <div className="space-y-4">
                       <div>
-                          <div className="text-xs text-slate-500 mb-1">更地道的表达：</div>
-                          <p className="text-emerald-400 font-medium text-sm bg-emerald-950/30 p-2 rounded-lg border border-emerald-500/20">{analysis.betterVersion}</p>
+                          <div className="text-xs text-slate-500 mb-1 font-bold">更地道的表达</div>
+                          <p className="text-emerald-300 font-medium text-sm bg-emerald-900/20 p-3 rounded-xl border border-emerald-500/20">{analysis.betterVersion}</p>
                       </div>
                       
                       <div className="grid grid-cols-2 gap-4">
                           <div>
-                              <div className="text-xs text-slate-500 mb-1">发音建议：</div>
-                              <p className="text-slate-300 text-xs">{analysis.pronunciation}</p>
+                              <div className="text-xs text-slate-500 mb-1 font-bold">发音建议</div>
+                              <p className="text-slate-300 text-xs leading-relaxed">{analysis.pronunciation}</p>
                           </div>
                           <div>
-                              <div className="text-xs text-slate-500 mb-1">综合评分：</div>
-                              <div className="text-xl font-bold text-amber-400">{analysis.score}<span className="text-xs text-slate-600 font-normal">/100</span></div>
+                              <div className="text-xs text-slate-500 mb-1 font-bold">综合评分</div>
+                              <div className="text-2xl font-black text-amber-400">{analysis.score}<span className="text-xs text-slate-600 font-normal ml-1">/100</span></div>
                           </div>
                       </div>
 
                       {analysis.chunks && analysis.chunks.length > 0 && (
                           <div>
-                              <div className="text-xs text-slate-500 mb-2">推荐积累词汇：</div>
+                              <div className="text-xs text-slate-500 mb-2 font-bold">推荐积累词汇</div>
                               <div className="flex flex-wrap gap-2">
                                   {analysis.chunks.map((chunk, i) => (
-                                      <button key={i} onClick={() => onSaveVocab({ text: chunk, type: 'word' })} className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors border border-slate-700 hover:border-blue-500/50">
+                                      <button key={i} onClick={() => onSaveVocab({ text: chunk, type: 'word' })} className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-cyan-900/30 rounded-lg text-xs text-slate-300 transition-colors border border-white/5 hover:border-cyan-500/30">
                                           <PlusCircle size={12} /> {chunk}
                                       </button>
                                   ))}
@@ -176,15 +174,14 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
               </div>
           )}
           
-          {/* Invisible Audio Element for User Playback */}
           <audio ref={userAudioRef} src={userAudioUrl || ''} onEnded={() => {}} className="hidden" />
           
           <div ref={messagesEndRef} className="h-4" />
       </div>
 
       {/* Control Bar */}
-      <div className="p-4 bg-slate-950 border-t border-slate-900 shrink-0">
-          <div className="flex items-center justify-center gap-6">
+      <div className="p-6 bg-slate-900/80 backdrop-blur-xl border-t border-white/5 shrink-0 pb-8">
+          <div className="flex items-center justify-center gap-8">
               {processingState === 'idle' ? (
                   <>
                     <button 
@@ -192,35 +189,35 @@ export const ConversationMode: React.FC<ConversationModeProps> = ({ session, onU
                             if (isRecording) handleStopRecording();
                             else startRecording();
                         }}
-                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl hover:scale-105 active:scale-95 ${
+                        className={`w-18 h-18 p-5 rounded-full flex items-center justify-center transition-all shadow-[0_0_30px_-5px_rgba(0,0,0,0.5)] hover:scale-105 active:scale-95 ${
                             isRecording 
-                            ? 'bg-red-500 shadow-red-500/30' 
-                            : 'bg-blue-600 shadow-blue-500/30'
+                            ? 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.4)] animate-pulse' 
+                            : 'bg-gradient-to-r from-cyan-500 to-blue-600 shadow-[0_0_20px_rgba(6,182,212,0.3)]'
                         }`}
                     >
                         {isRecording ? (
-                            <div className="w-6 h-6 bg-white rounded-md animate-pulse" />
+                            <div className="w-8 h-8 bg-white rounded-md" />
                         ) : (
-                            <Mic size={28} className="text-white" />
+                            <Mic size={32} className="text-white" />
                         )}
                     </button>
                     {userAudioUrl && !isRecording && (
-                        <button onClick={() => userAudioRef.current?.play()} className="p-4 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
-                            <PlayCircle size={24} />
+                        <button onClick={() => userAudioRef.current?.play()} className="p-4 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors border border-white/5">
+                            <PlayCircle size={28} />
                         </button>
                     )}
                   </>
               ) : (
-                  <div className="flex items-center gap-3 px-6 py-4 bg-slate-900 rounded-full border border-slate-800">
-                      <Loader2 className="animate-spin text-blue-500" />
-                      <span className="text-sm font-medium text-slate-400">
+                  <div className="flex items-center gap-4 px-8 py-4 bg-slate-800 rounded-full border border-white/5 shadow-lg">
+                      <Loader2 className="animate-spin text-cyan-400" size={24} />
+                      <span className="text-sm font-bold text-slate-300">
                           {processingState === 'analyzing' ? '正在分析语音...' : 'AI 正在回复...'}
                       </span>
                   </div>
               )}
           </div>
-          <div className="text-center mt-3 text-xs text-slate-600 font-medium">
-              {isRecording ? "点击停止并发送" : "点击麦克风开始说话"}
+          <div className="text-center mt-4 text-xs text-slate-500 font-medium tracking-wide">
+              {isRecording ? "点击停止发送" : "点击麦克风开始说话"}
           </div>
       </div>
     </div>
