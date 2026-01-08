@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, ArrowLeft, Eye, EyeOff, BarChart2 } from 'lucide-react';
 import { evaluatePronunciation } from '../services/contentGen';
 import { useSpeech } from '../hooks/useSpeech';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -70,10 +70,10 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
 
   if (!items || items.length === 0 || !currentItem) {
       return (
-          <div className="flex flex-col items-center justify-center h-full text-slate-400 p-6">
-              <AlertCircle size={48} className="mb-4 text-violet-400" />
+          <div className="flex flex-col items-center justify-center h-full text-stone-500 p-6">
+              <AlertCircle size={48} className="mb-4 text-[#8F9EAC]" />
               <p>{!items || items.length === 0 ? '暂无学习内容，请返回重新生成。' : '学习完成！'}</p>
-              <button onClick={onBack} className="mt-6 px-6 py-2 bg-slate-800 rounded-full text-sm text-white border border-slate-700">返回首页</button>
+              <button onClick={onBack} className="mt-6 px-6 py-2 bg-stone-700 rounded-full text-sm text-stone-300 border border-stone-600">返回首页</button>
           </div>
       );
   }
@@ -135,14 +135,14 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   return (
     <div className="flex flex-col items-center h-full w-full max-w-md mx-auto p-4 relative">
        {showHelp && (
-           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={() => setShowHelp(false)}>
-               <div className="glass rounded-xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowHelp(false)}>
+               <div className="glass rounded-xl p-6 max-w-sm w-full shadow-2xl bg-[#2E3440]" onClick={e => e.stopPropagation()}>
                    <div className="flex justify-between items-center mb-4">
-                       <h3 className="text-lg font-bold text-white">学习模式说明</h3>
-                       <button onClick={() => setShowHelp(false)}><X size={20} className="text-slate-400" /></button>
+                       <h3 className="text-lg font-bold text-[#ECEFF4]">学习模式说明</h3>
+                       <button onClick={() => setShowHelp(false)}><X size={20} className="text-stone-400" /></button>
                    </div>
                    <div className="space-y-4">
-                       <p className="text-slate-300 text-sm">
+                       <p className="text-stone-400 text-sm">
                            1. <b>阅读语境</b>：先读单词和例句，尝试推断意思。<br/>
                            2. <b>自我评估</b>：如果能推断出意思，选“掌握了”，否则选“需复习”。<br/>
                            3. <b>查看详情</b>：卡片翻转后，查看中文翻译并进行发音练习。
@@ -153,9 +153,9 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                              id="autoplay" 
                              checked={autoPlay} 
                              onChange={(e) => setAutoPlay(e.target.checked)}
-                             className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-violet-600"
+                             className="w-4 h-4 rounded border-stone-600 bg-stone-700 text-[#8F9EAC] focus:ring-[#8F9EAC]"
                            />
-                           <label htmlFor="autoplay" className="text-sm text-slate-400">自动播放单词发音</label>
+                           <label htmlFor="autoplay" className="text-sm text-stone-400">自动播放单词发音</label>
                        </div>
                    </div>
                </div>
@@ -163,51 +163,54 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
        )}
 
        <div className="absolute top-3 left-4 z-10">
-           <button onClick={onBack} className="p-2 text-slate-400 hover:text-white transition-colors"><ArrowLeft size={22} /></button>
+           <button onClick={onBack} className="p-2 text-stone-400 hover:text-white transition-colors"><ArrowLeft size={22} /></button>
        </div>
        <div className="absolute top-3 right-4 z-10 flex gap-2">
-           <button onClick={() => setShowHelp(true)} className="p-2 text-slate-400 hover:text-white transition-colors"><HelpCircle size={20} /></button>
+           <button onClick={() => setShowHelp(true)} className="p-2 text-stone-400 hover:text-white transition-colors"><HelpCircle size={20} /></button>
        </div>
 
-       <div className="w-full h-1.5 bg-slate-800 rounded-full mb-6 mt-12 overflow-hidden shrink-0 border border-white/5">
-          <div className="h-full bg-gradient-to-r from-violet-600 to-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+       <div className="w-full h-1.5 bg-white/10 rounded-full mb-6 mt-12 overflow-hidden shrink-0">
+          {/* Muted Blue Progress Bar */}
+          <div className="h-full bg-[#8F9EAC] transition-all duration-500" style={{ width: `${progress}%` }} />
        </div>
 
        {/* Card Container */}
-       <div className={`perspective-1000 w-full flex-1 max-h-[55vh] min-h-[320px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
-          <button onClick={toggleCollect} className="absolute top-4 right-4 z-20 p-2 rounded-full hover:bg-black/20 transition-colors">
-              <Heart size={22} className={`transition-all ${isCollected ? 'text-rose-500 fill-rose-500 scale-110' : 'text-slate-400 hover:text-rose-400'}`} />
-          </button>
-
+       <div className={`perspective-1000 w-full flex-1 max-h-[60vh] min-h-[380px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
+          
           <div className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}>
              
-             {/* Front Side: Context Learning Mode - Deep Violet Gradient */}
-             <div className="absolute inset-0 backface-hidden bg-gradient-to-br from-indigo-950/90 to-slate-900/90 border border-indigo-500/30 rounded-3xl flex flex-col p-5 shadow-2xl backdrop-blur-xl">
-                 <div className="flex items-center gap-2 mb-2 shrink-0">
-                    {currentLevel === 0 && <span className="text-[10px] font-bold text-amber-300 bg-amber-900/40 px-2 py-0.5 rounded border border-amber-500/20 shadow-sm">New</span>}
-                    <span className="text-[10px] font-semibold tracking-widest text-violet-300 uppercase bg-violet-900/40 px-2.5 py-0.5 rounded-full border border-violet-500/20">
-                        {currentItem.type}
-                    </span>
+             {/* Front Side: Twilight Blue Gradient - Dark */}
+             <div className="absolute inset-0 backface-hidden bg-gradient-to-br from-[#4C566A] to-[#3B4252] border border-white/5 rounded-3xl flex flex-col p-5 shadow-2xl backdrop-blur-sm">
+                 <div className="flex justify-between items-start mb-4">
+                    <div className="flex flex-col items-start gap-1.5">
+                        {currentLevel === 0 && <span className="text-[10px] font-bold text-[#EBCB8B] bg-white/10 px-2 py-0.5 rounded border border-white/10 shadow-sm">New</span>}
+                        <span className="text-[10px] font-semibold tracking-widest text-stone-400 uppercase bg-black/20 px-2.5 py-0.5 rounded-full border border-white/5">
+                            {currentItem.type}
+                        </span>
+                    </div>
+                    <button onClick={toggleCollect} className={`p-2 rounded-full hover:bg-black/20 transition-all ${isCollected ? 'text-[#BF616A] fill-[#BF616A]' : 'text-stone-500 hover:text-[#BF616A]'}`}>
+                        <Heart size={22} />
+                    </button>
                  </div>
                  
-                 <div className="flex-1 flex flex-col items-center justify-center">
-                     <h2 className="text-3xl font-bold text-center text-white mb-3 select-none px-2 break-words max-w-full leading-tight drop-shadow-lg">{currentItem.text}</h2>
+                 <div className="flex-1 flex flex-col items-center justify-center -mt-6">
+                     <h2 className="text-3xl font-bold text-center text-[#ECEFF4] mb-3 select-none px-2 break-words max-w-full leading-tight drop-shadow-md">{currentItem.text}</h2>
                      
                      <div className="flex items-center gap-4 mb-6">
-                         <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className={`w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 transition-all shadow-lg border border-white/10 ${isPlaying ? 'bg-white/20 text-cyan-300 scale-110' : 'bg-white/5 text-slate-300 hover:scale-105'}`}>
+                         <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className={`w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 transition-all shadow-lg border border-white/10 ${isPlaying ? 'bg-white/20 text-[#ECEFF4] scale-110' : 'bg-white/5 text-stone-400 hover:scale-105'}`}>
                             {isPlaying ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
                          </button>
                          {currentItem.pronunciation && (
-                             <span className="text-slate-400 font-mono text-xs tracking-wider bg-black/20 px-3 py-1.5 rounded-lg border border-white/5">{currentItem.pronunciation}</span>
+                             <span className="text-stone-400 font-mono text-xs tracking-wider bg-black/20 px-3 py-1.5 rounded-lg border border-white/5">{currentItem.pronunciation}</span>
                          )}
                      </div>
 
-                     {/* Context Area - Glassy */}
-                     <div className="w-full bg-white/5 rounded-2xl p-4 border border-white/5 mb-2 shadow-inner">
-                        <div className="text-xs text-indigo-300 uppercase tracking-widest mb-2 font-bold flex items-center gap-2">
-                            <Sparkles size={12} className="text-amber-400" /> 语境例句
+                     {/* Context Area - Dark Glass */}
+                     <div className="w-full bg-black/20 rounded-2xl p-4 border border-white/5 mb-2 shadow-inner">
+                        <div className="text-xs text-stone-400 uppercase tracking-widest mb-2 font-bold flex items-center gap-2">
+                            <Sparkles size={12} className="text-[#EBCB8B]" /> 语境例句
                         </div>
-                        <p className="text-slate-200 text-sm leading-relaxed italic line-clamp-4 font-light">
+                        <p className="text-[#D8DEE9] text-sm leading-relaxed italic line-clamp-4 font-light">
                             "{currentItem.example}"
                         </p>
                      </div>
@@ -217,14 +220,14 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                          <div className="w-full mt-2">
                              <button 
                                 onClick={(e) => { e.stopPropagation(); setShowEnglishHint(!showEnglishHint); }}
-                                className="flex items-center gap-2 text-xs text-slate-500 hover:text-cyan-400 transition-colors mx-auto py-2"
+                                className="flex items-center gap-2 text-xs text-stone-500 hover:text-stone-300 transition-colors mx-auto py-2"
                              >
                                  {showEnglishHint ? <EyeOff size={14} /> : <Eye size={14} />}
                                  {showEnglishHint ? "隐藏释义" : "查看英文释义"}
                              </button>
                              
                              <div className={`overflow-hidden transition-all duration-300 ${showEnglishHint ? 'max-h-20 opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
-                                 <p className="text-xs text-slate-400 text-center bg-black/20 p-2 rounded-lg border border-white/5">
+                                 <p className="text-xs text-stone-400 text-center bg-black/30 p-2 rounded-lg border border-white/5">
                                      {currentItem.definition}
                                  </p>
                              </div>
@@ -232,92 +235,106 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                      )}
                  </div>
                  
-                 <div className="text-center text-[10px] text-slate-600 mt-3 font-medium">
+                 <div className="text-center text-[10px] text-stone-500 mt-2 font-medium">
                      点击下方按钮验证
                  </div>
              </div>
 
-             {/* Back Side: Detail & Verify Mode - Darker Slate */}
-             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900/95 border border-slate-700 rounded-3xl flex flex-col p-0 shadow-2xl overflow-hidden relative backdrop-blur-xl">
+             {/* Back Side: Dark Muted Grey */}
+             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-[#2E3440] border border-[#434C5E] rounded-3xl flex flex-col p-0 shadow-2xl overflow-hidden relative">
                  {/* Back Header */}
-                 <div className="bg-black/20 border-b border-white/5 p-4 flex items-start justify-between shrink-0">
-                     <div className="flex-1 min-w-0 pr-2">
-                        <h3 className="text-xl font-bold text-white truncate">{currentItem.text}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-slate-400 font-mono bg-white/5 px-2 py-0.5 rounded border border-white/5">Lv {currentLevel}</span>
-                            <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className="text-slate-400 hover:text-white">
-                                <Volume2 size={16} />
-                            </button>
-                        </div>
+                 <div className="bg-black/20 border-b border-white/5 p-4 flex items-center justify-between shrink-0 h-16">
+                     <div className="flex items-center gap-3 overflow-hidden">
+                        <h3 className="text-xl font-bold text-[#ECEFF4] truncate max-w-[140px]">{currentItem.text}</h3>
+                        <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className="text-stone-400 hover:text-white shrink-0">
+                            <Volume2 size={18} />
+                        </button>
                      </div>
-                     <div className={`px-3 py-1 rounded-full text-[10px] font-bold border shrink-0 ${currentRating ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                         {currentRating ? '已掌握' : '需复习'}
+                     <div className="flex items-center gap-2 shrink-0">
+                         {currentRating !== null && (
+                             <div className={`px-2 py-0.5 rounded text-[10px] font-bold border ${currentRating ? 'bg-[#A3BE8C]/10 text-[#A3BE8C] border-[#A3BE8C]/30' : 'bg-[#BF616A]/10 text-[#BF616A] border-[#BF616A]/30'}`}>
+                                 {currentRating ? '已掌握' : '需复习'}
+                             </div>
+                         )}
+                         <button onClick={toggleCollect} className={`p-1.5 rounded-full hover:bg-white/10 transition-colors ${isCollected ? 'text-[#BF616A] fill-[#BF616A]' : 'text-stone-500'}`}>
+                             <Heart size={18} />
+                         </button>
                      </div>
                  </div>
 
                  {/* Back Content */}
-                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
+                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col">
                      
                      {/* Definition Section */}
-                     <div className="text-center py-4 bg-gradient-to-br from-violet-500/10 to-transparent rounded-2xl border border-violet-500/10">
-                        <p className="text-lg text-violet-300 font-bold mb-1 leading-snug px-2">{currentItem.translation}</p>
-                        {currentItem.definition && hasEnglishHint && <p className="text-[10px] text-slate-500 leading-relaxed px-4 mt-2 border-t border-white/5 pt-2 line-clamp-2">{currentItem.definition}</p>}
+                     <div className="text-center py-3 bg-white/5 rounded-2xl border border-white/5 mb-3 shrink-0">
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-black/20 mb-2">
+                            <BarChart2 size={10} className="text-stone-500" />
+                            <span className="text-[10px] text-stone-400 font-mono">Lv {currentLevel}</span>
+                        </div>
+                        <p className="text-lg text-[#88C0D0] font-bold leading-snug px-3">{currentItem.translation}</p>
+                        {currentItem.definition && hasEnglishHint && <p className="text-[10px] text-stone-500 leading-relaxed px-4 mt-2 border-t border-white/5 pt-2 line-clamp-2">{currentItem.definition}</p>}
                      </div>
 
-                     {/* Example Section */}
-                     <div className="bg-white/5 p-4 rounded-2xl border-l-4 border-cyan-500 relative group/example">
-                        <p className="text-xs text-slate-200 italic pr-6 mb-2 leading-relaxed">"{currentItem.example}"</p>
-                        {currentItem.example_zh && <p className="text-[10px] text-slate-500 leading-snug">{currentItem.example_zh}</p>}
-                        <button onClick={(e) => { e.stopPropagation(); speak(currentItem.example, speechRate); }} className="absolute right-2 top-2 p-1.5 text-slate-500 hover:text-white transition-colors">
+                     {/* Example Section - Flexible growth */}
+                     <div className="bg-[#3B4252] p-3 rounded-2xl border-l-4 border-[#81A1C1] relative group/example shadow-sm mb-3">
+                        <p className="text-xs text-[#D8DEE9] italic pr-6 mb-2 leading-relaxed">"{currentItem.example}"</p>
+                        {currentItem.example_zh && <p className="text-[10px] text-stone-400 leading-snug">{currentItem.example_zh}</p>}
+                        <button onClick={(e) => { e.stopPropagation(); speak(currentItem.example, speechRate); }} className="absolute right-2 top-2 p-1.5 text-stone-500 hover:text-white transition-colors">
                             <PlayCircle size={16} />
                         </button>
                      </div>
 
-                     {/* Extra Info */}
-                     {currentItem.extra_info && (
-                         <div className="flex items-start gap-2 bg-amber-500/5 border border-amber-500/10 p-3 rounded-xl text-[10px] text-amber-200/70">
-                            <Sparkles size={12} className="shrink-0 mt-0.5 text-amber-500" />
-                            <span>{currentItem.extra_info}</span>
+                     {/* Compact Bottom Grid: Source & Pronunciation */}
+                     <div className="grid grid-cols-2 gap-2 mt-auto">
+                         {/* Source Block */}
+                         <div className="bg-black/20 rounded-xl p-3 border border-white/5 flex flex-col justify-center min-h-[70px]">
+                             <div className="flex items-center gap-1.5 mb-1.5 opacity-80">
+                                <Sparkles size={12} className="text-[#EBCB8B]" />
+                                <span className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">来源</span>
+                             </div>
+                             <p className="text-[10px] text-stone-300 line-clamp-2 leading-tight font-medium">
+                                {currentItem.extra_info || "通用词库"}
+                             </p>
                          </div>
-                     )}
 
-                     {/* Pronunciation Evaluation Area */}
-                     <div className="bg-black/30 rounded-2xl p-3 border border-white/5 flex items-center justify-between gap-3">
-                         <div className="flex-1 min-w-0">
-                             <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">发音评测</div>
+                         {/* Pronunciation Evaluation Block */}
+                         <div className="bg-black/20 rounded-xl p-2 border border-white/5 flex flex-col items-center justify-center min-h-[70px] relative">
                              {pronunciationResult ? (
-                                 <div>
-                                     <div className="flex items-baseline gap-1">
-                                         <span className={`text-base font-bold ${pronunciationResult.score > 80 ? 'text-emerald-400' : 'text-orange-400'}`}>{pronunciationResult.score}</span>
-                                         <span className="text-[9px] text-slate-600">/100</span>
+                                 <div className="w-full text-center">
+                                     <div className="flex items-baseline justify-center gap-0.5">
+                                         <span className={`text-xl font-black ${pronunciationResult.score > 80 ? 'text-[#A3BE8C]' : 'text-[#EBCB8B]'}`}>{pronunciationResult.score}</span>
+                                         <span className="text-[8px] text-stone-600">/100</span>
                                      </div>
-                                     <p className="text-[9px] text-slate-400 line-clamp-1">{pronunciationResult.feedback}</p>
+                                     <div className="text-[9px] text-stone-400 truncate w-full px-1">{pronunciationResult.feedback}</div>
                                  </div>
                              ) : (
-                                 <p className="text-[10px] text-slate-600">点击麦克风，大声朗读单词</p>
+                                 <>
+                                    <div className="text-[9px] text-stone-500 font-bold mb-1">发音评测</div>
+                                    <button onClick={toggleRecording} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border border-white/10 ${recordingState === 'recording' ? 'bg-[#BF616A] text-white animate-pulse' : 'bg-[#4C566A] text-stone-300'}`}>
+                                        {recordingState === 'recording' ? <Square size={12} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={14} className="animate-spin" /> : <Mic size={16} />)}
+                                    </button>
+                                 </>
                              )}
                          </div>
-                         <button onClick={toggleRecording} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0 border border-white/10 ${recordingState === 'recording' ? 'bg-rose-500 text-white animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.4)]' : (recordingState === 'evaluating' ? 'bg-slate-800 text-slate-500' : 'bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white hover:border-cyan-500/50')}`}>
-                            {recordingState === 'recording' ? <Square size={14} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={16} className="animate-spin" /> : <Mic size={18} />)}
-                         </button>
                      </div>
                  </div>
              </div>
           </div>
        </div>
 
-       <div className={`flex items-center gap-3 mt-6 w-full justify-center shrink-0 pb-4 transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+       {/* Action Buttons */}
+       <div className={`flex items-center gap-3 mt-4 w-full justify-center shrink-0 pb-6 transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
           {!isFlipped ? (
              <>
-                <button onClick={() => handleRate(false)} className="flex-1 py-4 rounded-2xl bg-slate-800/80 border border-slate-700 text-slate-300 font-bold hover:bg-slate-700 hover:border-rose-500/50 hover:text-rose-400 transition-all flex justify-center items-center gap-2 active:scale-95 shadow-lg group text-sm backdrop-blur-md">
-                   <X size={18} className="text-slate-500 group-hover:text-rose-400" /> 需复习
+                <button onClick={() => handleRate(false)} className="flex-1 py-3.5 rounded-2xl bg-[#3B4252] border border-[#4C566A] text-stone-400 font-bold hover:bg-[#434C5E] hover:text-[#BF616A] transition-all flex justify-center items-center gap-2 active:scale-95 shadow-lg group text-sm">
+                   <X size={18} className="text-stone-500 group-hover:text-[#BF616A]" /> 需复习
                 </button>
-                <button onClick={() => handleRate(true)} className="flex-1 py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-bold hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:scale-105 shadow-lg transition-all flex justify-center items-center gap-2 active:scale-95 text-sm border border-emerald-500/50">
+                <button onClick={() => handleRate(true)} className="flex-1 py-3.5 rounded-2xl bg-[#8F9EAC] text-[#ECEFF4] font-bold hover:shadow-lg hover:bg-[#81A1C1] shadow-md transition-all flex justify-center items-center gap-2 active:scale-95 text-sm border border-[#81A1C1]/50">
                    <Check size={18} /> 掌握了
                 </button>
              </>
           ) : (
-             <button onClick={handleNext} className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold hover:shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all flex justify-center items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-lg active:scale-95 text-sm border border-indigo-500/50">
+             <button onClick={handleNext} className="w-full py-3.5 rounded-2xl bg-[#5E81AC] text-white font-bold hover:bg-[#81A1C1] transition-all flex justify-center items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-lg active:scale-95 text-sm border border-[#81A1C1]/50">
                 下一个 <ArrowRight size={18} />
              </button>
           )}
