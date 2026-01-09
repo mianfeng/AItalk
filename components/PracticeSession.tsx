@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
-import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge, Sparkles } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge, Sparkles, X } from 'lucide-react';
 import { sanitizeForTTS } from '../services/audioUtils';
 import { useSpeech } from '../hooks/useSpeech';
 
@@ -11,6 +11,109 @@ interface PracticeSessionProps {
   onBack: () => void;
   onSecondQuestionReached?: () => void; 
 }
+
+// 环绕进度边框组件
+const CardProgressBorder: React.FC<{ progress: number; children: React.ReactNode }> = ({ progress, children }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+    useLayoutEffect(() => {
+        if (!containerRef.current) return;
+        
+        const updateDimensions = () => {
+            if (containerRef.current) {
+                const { offsetWidth, offsetHeight } = containerRef.current;
+                setDimensions({ width: offsetWidth, height: offsetHeight });
+            }
+        };
+
+        // Initial measurement
+        updateDimensions();
+
+        const observer = new ResizeObserver(() => {
+            updateDimensions();
+        });
+
+        observer.observe(containerRef.current);
+
+        return () => observer.disconnect();
+    }, []);
+
+    // Config for the border
+    const strokeWidth = 4;
+    const radius = 32; // Matches rounded-[2rem] (approx 32px)
+    const w = dimensions.width;
+    const h = dimensions.height;
+    
+    // Calculate path length for a rounded rectangle
+    const perimeter = 2 * (w - 2 * radius) + 2 * (h - 2 * radius) + (2 * Math.PI * radius);
+    
+    // Ensure perimeter is positive
+    const totalLength = perimeter > 0 ? perimeter : 0;
+    
+    // Calculate offset
+    const dashOffset = totalLength - (progress * totalLength);
+
+    return (
+        <div className="relative w-full" ref={containerRef}>
+            {/* The actual content card */}
+            <div className="relative z-10 h-full w-full">
+                {children}
+            </div>
+
+            {/* SVG Overlay for Border */}
+            <svg 
+                className="absolute inset-0 pointer-events-none w-full h-full z-20 overflow-visible"
+                width={w} 
+                height={h}
+            >
+                <defs>
+                    <linearGradient id="practiceProgressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#f59e0b" /> {/* amber-500 */}
+                        <stop offset="100%" stopColor="#ea580c" /> {/* orange-600 */}
+                    </linearGradient>
+                    <filter id="practiceGlow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="4" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                </defs>
+                
+                {/* Background Track - Centered on edge (x=0, y=0, w=w, h=h) */}
+                <rect
+                    x={0}
+                    y={0}
+                    width={w}
+                    height={h}
+                    rx={radius}
+                    ry={radius}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.05)"
+                    strokeWidth={strokeWidth}
+                />
+
+                {/* Progress Path */}
+                {totalLength > 0 && (
+                    <rect
+                        x={0}
+                        y={0}
+                        width={w}
+                        height={h}
+                        rx={radius}
+                        ry={radius}
+                        fill="none"
+                        stroke="url(#practiceProgressGradient)"
+                        strokeWidth={strokeWidth}
+                        strokeDasharray={totalLength}
+                        strokeDashoffset={dashOffset}
+                        strokeLinecap="round"
+                        className="transition-all duration-700 ease-out"
+                        filter="url(#practiceGlow)"
+                    />
+                )}
+            </svg>
+        </div>
+    );
+};
 
 export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onComplete, onBack, onSecondQuestionReached }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -211,31 +314,46 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   }
 
   const allFilled = userAnswers.length > 0 && userAnswers.every(a => a !== null);
+  
+  // Calculate progress for the border (0 to 1)
+  const progressValue = (currentIndex + 1) / exercises.length;
 
   return (
     <div className="h-full flex flex-col p-4 md:p-6 overflow-y-auto custom-scrollbar">
       <div className="max-w-xl mx-auto w-full flex flex-col gap-6 h-full pb-10">
-        <div className="flex items-center justify-between">
-          <button onClick={onBack} className="text-slate-400 text-sm font-medium hover:text-white transition-colors">取消</button>
-          <div className="flex-1 mx-6 h-1.5 bg-slate-800 rounded-full overflow-hidden border border-white/5">
-             <div className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500 shadow-sm" style={{ width: `${((currentIndex + 1) / exercises.length) * 100}%` }}></div>
+        
+        {/* Header - Minimalist */}
+        <div className="flex items-center justify-between px-2">
+          <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+             <X size={20} />
+          </button>
+          <div className="flex flex-col items-end">
+             <span className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-0.5">Daily Review</span>
+             <span className="text-sm font-mono font-medium text-slate-300">
+               <span className="text-amber-400 text-lg">{currentIndex + 1}</span>
+               <span className="text-slate-600 mx-1">/</span>
+               {exercises.length}
+             </span>
           </div>
-          <span className="text-xs font-mono text-slate-500">{currentIndex + 1}/{exercises.length}</span>
         </div>
 
         <div className="flex-1 flex flex-col gap-6">
-            <div className="glass rounded-[2rem] p-8 shadow-2xl flex flex-col items-center justify-center min-h-[280px] relative overflow-hidden border border-white/5">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500/20 to-transparent"></div>
-                <div className="text-center mb-8 relative z-10">{renderSentenceWithSlots()}</div>
-                <div className="px-5 py-2 bg-black/20 rounded-xl border border-white/5 text-slate-400 text-sm leading-relaxed text-center backdrop-blur-sm">
-                   {currentExercise?.sentenceZh}
-                </div>
-                {showExplanation && (
-                    <div className="absolute top-6 right-6 animate-in zoom-in duration-300 drop-shadow-lg">
-                        {isCorrect ? <CheckCircle2 size={40} className="text-emerald-500" /> : <XCircle size={40} className="text-rose-500" />}
+            
+            {/* Main Card with Progress Border */}
+            <CardProgressBorder progress={progressValue}>
+                <div className="glass rounded-[2rem] p-8 shadow-2xl flex flex-col items-center justify-center min-h-[280px] relative overflow-hidden bg-slate-900/40 backdrop-blur-xl">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500/10 to-transparent"></div>
+                    <div className="text-center mb-8 relative z-10 w-full">{renderSentenceWithSlots()}</div>
+                    <div className="px-5 py-2 bg-black/20 rounded-xl border border-white/5 text-slate-400 text-sm leading-relaxed text-center backdrop-blur-sm max-w-full">
+                    {currentExercise?.sentenceZh}
                     </div>
-                )}
-            </div>
+                    {showExplanation && (
+                        <div className="absolute top-6 right-6 animate-in zoom-in duration-300 drop-shadow-lg">
+                            {isCorrect ? <CheckCircle2 size={40} className="text-emerald-500" /> : <XCircle size={40} className="text-rose-500" />}
+                        </div>
+                    )}
+                </div>
+            </CardProgressBorder>
 
             {showExplanation ? (
                 <div className="flex flex-col gap-4 animate-in slide-in-from-bottom-4">

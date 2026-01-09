@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
 import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, ArrowLeft, Eye, EyeOff, BarChart2 } from 'lucide-react';
 import { evaluatePronunciation } from '../services/contentGen';
@@ -13,6 +13,107 @@ interface StudySessionProps {
   onComplete: (results: SessionResult[]) => void;
   onBack: () => void;
 }
+
+// 环绕进度边框组件 (Adapted for Study Mode with Indigo/Cyan theme)
+const CardProgressBorder: React.FC<{ progress: number; children: React.ReactNode }> = ({ progress, children }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+    useLayoutEffect(() => {
+        if (!containerRef.current) return;
+        
+        const updateDimensions = () => {
+            if (containerRef.current) {
+                const { offsetWidth, offsetHeight } = containerRef.current;
+                setDimensions({ width: offsetWidth, height: offsetHeight });
+            }
+        };
+
+        // Initial measurement
+        updateDimensions();
+
+        const observer = new ResizeObserver(() => {
+            updateDimensions();
+        });
+
+        observer.observe(containerRef.current);
+
+        return () => observer.disconnect();
+    }, []);
+
+    // Config for the border
+    const strokeWidth = 4;
+    const radius = 24; // Matches rounded-3xl (approx 24px)
+    const w = dimensions.width;
+    const h = dimensions.height;
+    
+    // Calculate path length for a rounded rectangle
+    const perimeter = 2 * (w - 2 * radius) + 2 * (h - 2 * radius) + (2 * Math.PI * radius);
+    const totalLength = perimeter > 0 ? perimeter : 0;
+    
+    // Calculate offset. 
+    const dashOffset = totalLength - (progress * totalLength);
+
+    return (
+        <div className="relative w-full h-full flex flex-col" ref={containerRef}>
+            {/* The actual content card */}
+            <div className="relative z-10 h-full w-full">
+                {children}
+            </div>
+
+            {/* SVG Overlay for Border */}
+            <svg 
+                className="absolute inset-0 pointer-events-none w-full h-full z-20 overflow-visible"
+                width={w} 
+                height={h}
+            >
+                <defs>
+                    <linearGradient id="studyProgressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#6366f1" /> {/* indigo-500 */}
+                        <stop offset="100%" stopColor="#22d3ee" /> {/* cyan-400 */}
+                    </linearGradient>
+                    <filter id="studyGlow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="4" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                </defs>
+                
+                {/* Background Track - Centered on edge */}
+                <rect
+                    x={0}
+                    y={0}
+                    width={w}
+                    height={h}
+                    rx={radius}
+                    ry={radius}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.08)"
+                    strokeWidth={strokeWidth}
+                />
+
+                {/* Progress Path - Centered on edge */}
+                {totalLength > 0 && (
+                    <rect
+                        x={0}
+                        y={0}
+                        width={w}
+                        height={h}
+                        rx={radius}
+                        ry={radius}
+                        fill="none"
+                        stroke="url(#studyProgressGradient)"
+                        strokeWidth={strokeWidth}
+                        strokeDasharray={totalLength}
+                        strokeDashoffset={dashOffset}
+                        strokeLinecap="round"
+                        className="transition-all duration-700 ease-out"
+                        filter="url(#studyGlow)"
+                    />
+                )}
+            </svg>
+        </div>
+    );
+};
 
 export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex, onProgress, onComplete, onBack }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -78,7 +179,10 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
       );
   }
 
-  const progress = (currentIndex / items.length) * 100;
+  // Calculate progress based on current card. 
+  // (currentIndex + 1) / total gives a sense of completion as you move through.
+  const progressValue = (currentIndex + 1) / items.length;
+  
   const isCollected = collectedIds.has(currentItem.id);
   const currentLevel = typeof currentItem.masteryLevel === 'number' ? currentItem.masteryLevel : 0;
   const hasEnglishHint = currentItem.definition && currentItem.definition.length > 5 && !currentItem.definition.includes(currentItem.translation);
@@ -162,166 +266,179 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            </div>
        )}
 
-       <div className="absolute top-3 left-4 z-10">
-           <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10"><ArrowLeft size={22} /></button>
-       </div>
-       <div className="absolute top-3 right-4 z-10 flex gap-2">
-           <button onClick={() => setShowHelp(true)} className="p-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10"><HelpCircle size={20} /></button>
+       {/* Header with Counter instead of Linear Bar */}
+       <div className="w-full flex items-center justify-between mb-4 px-1">
+           <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10">
+               <ArrowLeft size={22} />
+           </button>
+           
+           <div className="flex items-center gap-4">
+               <div className="flex flex-col items-end">
+                    <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-0.5">Study Plan</span>
+                    <span className="text-sm font-mono font-medium text-slate-300">
+                    <span className="text-indigo-400 text-lg">{currentIndex + 1}</span>
+                    <span className="text-slate-600 mx-1">/</span>
+                    {items.length}
+                    </span>
+               </div>
+               <button onClick={() => setShowHelp(true)} className="p-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10">
+                   <HelpCircle size={20} />
+               </button>
+           </div>
        </div>
 
-       <div className="w-full h-1.5 bg-slate-800/50 rounded-full mb-6 mt-12 overflow-hidden shrink-0 border border-white/5">
-          <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]" style={{ width: `${progress}%` }} />
-       </div>
-
-       {/* Card Container */}
-       <div className={`perspective-1000 w-full flex-1 max-h-[60vh] min-h-[380px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
-          
-          <div className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}>
-             
-             {/* Front Side: Nebula Gradient */}
-             <div className="absolute inset-0 backface-hidden bg-gradient-to-br from-indigo-900/90 via-slate-900 to-slate-950 border border-white/10 rounded-3xl flex flex-col p-6 shadow-2xl backdrop-blur-xl">
-                 <div className="flex justify-between items-start mb-4">
-                    <div className="flex flex-col items-start gap-1.5">
-                        {currentLevel === 0 && <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/20 shadow-sm animate-pulse">New</span>}
-                        <span className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase bg-white/5 px-2.5 py-0.5 rounded-full border border-white/5">
-                            {currentItem.type}
-                        </span>
-                    </div>
-                    <button onClick={toggleCollect} className={`p-2 rounded-full hover:bg-white/10 transition-all ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-500 hover:text-rose-400'}`}>
-                        <Heart size={22} />
-                    </button>
-                 </div>
-                 
-                 <div className="flex-1 flex flex-col items-center justify-center -mt-6">
-                     <h2 className="text-4xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-300 mb-4 select-none px-2 break-words max-w-full leading-tight drop-shadow-sm tracking-tight">{currentItem.text}</h2>
+       {/* Card Container wrapped with Progress Border */}
+       <div className={`w-full flex-1 max-h-[65vh] min-h-[400px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
+          <CardProgressBorder progress={progressValue}>
+              <div className="perspective-1000 w-full h-full relative">
+                  <div className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}>
                      
-                     <div className="flex items-center gap-4 mb-8">
-                         <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className={`w-12 h-12 flex items-center justify-center rounded-full transition-all shadow-lg border border-white/10 ${isPlaying ? 'bg-indigo-500 text-white scale-110 shadow-indigo-500/30' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-indigo-300 hover:scale-105'}`}>
-                            {isPlaying ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
-                         </button>
-                         {currentItem.pronunciation && (
-                             <span className="text-slate-400 font-mono text-sm tracking-wide bg-black/20 px-3 py-1.5 rounded-lg border border-white/5">{currentItem.pronunciation}</span>
-                         )}
-                     </div>
-
-                     {/* Context Area - Darker Glass */}
-                     <div className="w-full bg-black/20 rounded-2xl p-5 border border-white/5 mb-2 shadow-inner">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-bold flex items-center gap-2">
-                            <Sparkles size={10} className="text-amber-400" /> 语境例句
-                        </div>
-                        <p className="text-slate-200 text-sm leading-relaxed italic line-clamp-4 font-light opacity-90">
-                            "{currentItem.example}"
-                        </p>
-                     </div>
-
-                     {/* English Hint Toggle */}
-                     {hasEnglishHint && (
-                         <div className="w-full mt-3">
-                             <button 
-                                onClick={(e) => { e.stopPropagation(); setShowEnglishHint(!showEnglishHint); }}
-                                className="flex items-center gap-2 text-xs text-slate-500 hover:text-indigo-300 transition-colors mx-auto py-2 group"
-                             >
-                                 {showEnglishHint ? <EyeOff size={14} className="group-hover:scale-110 transition-transform" /> : <Eye size={14} className="group-hover:scale-110 transition-transform" />}
-                                 {showEnglishHint ? "隐藏释义" : "查看英文释义"}
-                             </button>
-                             
-                             <div className={`overflow-hidden transition-all duration-300 ${showEnglishHint ? 'max-h-20 opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
-                                 <p className="text-xs text-slate-400 text-center bg-white/5 p-3 rounded-xl border border-white/5">
-                                     {currentItem.definition}
-                                 </p>
-                             </div>
-                         </div>
-                     )}
-                 </div>
-                 
-                 <div className="text-center text-[10px] text-slate-600 mt-2 font-medium">
-                     点击卡片翻转查看详情
-                 </div>
-             </div>
-
-             {/* Back Side: Dark Slate - Redesigned Layout */}
-             <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 border border-slate-700/50 rounded-3xl flex flex-col p-0 shadow-2xl overflow-hidden relative">
-                 {/* Back Header with Word + Source + Pronunciation + Heart */}
-                 <div className="bg-black/20 border-b border-white/5 px-5 py-4 flex items-center justify-between shrink-0 min-h-[70px] backdrop-blur-md">
-                     <div className="flex flex-col gap-1 overflow-hidden mr-2">
-                        <div className="flex items-end gap-2">
-                            <h3 className="text-2xl font-bold text-slate-200 truncate leading-none">{currentItem.text}</h3>
-                            <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className="text-slate-500 hover:text-indigo-400 shrink-0 transition-colors pb-0.5">
-                                <Volume2 size={18} />
+                     {/* Front Side */}
+                     <div className="absolute inset-0 backface-hidden bg-gradient-to-br from-indigo-900/90 via-slate-900 to-slate-950 rounded-3xl flex flex-col p-6 shadow-2xl backdrop-blur-xl overflow-hidden">
+                         <div className="flex justify-between items-start mb-4 relative z-10">
+                            <div className="flex flex-col items-start gap-1.5">
+                                {currentLevel === 0 && <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/20 shadow-sm animate-pulse">New</span>}
+                                <span className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase bg-white/5 px-2.5 py-0.5 rounded-full border border-white/5">
+                                    {currentItem.type}
+                                </span>
+                            </div>
+                            <button onClick={toggleCollect} className={`p-2 rounded-full hover:bg-white/10 transition-all ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-500 hover:text-rose-400'}`}>
+                                <Heart size={22} />
                             </button>
-                        </div>
-                        
-                        <div className="flex items-center gap-1.5 opacity-60">
-                            <Sparkles size={10} className="text-amber-400" />
-                            <span className="text-[10px] text-slate-300 font-medium truncate max-w-[140px]">
-                                {currentItem.extra_info || "通用词库"}
-                            </span>
-                        </div>
-                     </div>
-
-                     <div className="flex items-center gap-3 shrink-0">
-                         {/* Pronunciation Trigger */}
-                         <button 
-                             onClick={toggleRecording} 
-                             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border shadow-sm ${recordingState === 'recording' ? 'bg-rose-500 border-rose-400 text-white animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-indigo-600 hover:border-indigo-500 hover:text-white'}`}
-                         >
-                            {recordingState === 'recording' ? <Square size={14} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={18} className="animate-spin" /> : <Mic size={20} />)}
-                         </button>
-
-                         <button onClick={toggleCollect} className={`w-10 h-10 flex items-center justify-center rounded-full border border-transparent hover:bg-white/5 transition-colors ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-600 hover:text-rose-400'}`}>
-                             <Heart size={22} />
-                         </button>
-                     </div>
-                 </div>
-
-                 {/* Back Content */}
-                 <div className="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col">
-                     
-                     {/* Pronunciation Feedback Area (Conditional) */}
-                     {pronunciationResult && (
-                         <div className="mb-4 bg-slate-800/50 rounded-xl p-3 border border-indigo-500/30 animate-in slide-in-from-top-2">
-                             <div className="flex items-center justify-between mb-1">
-                                 <span className="text-[10px] text-indigo-300 uppercase font-bold tracking-wider">发音评测</span>
-                                 <div className="flex items-baseline gap-1">
-                                     <span className={`text-xl font-black ${pronunciationResult.score > 80 ? 'text-emerald-400' : 'text-amber-400'}`}>{pronunciationResult.score}</span>
-                                     <span className="text-[10px] text-slate-600">/100</span>
-                                 </div>
-                             </div>
-                             <p className="text-xs text-slate-400 leading-relaxed">{pronunciationResult.feedback}</p>
                          </div>
-                     )}
+                         
+                         <div className="flex-1 flex flex-col items-center justify-center -mt-6 relative z-10">
+                             <h2 className="text-4xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-300 mb-4 select-none px-2 break-words max-w-full leading-tight drop-shadow-sm tracking-tight">{currentItem.text}</h2>
+                             
+                             <div className="flex items-center gap-4 mb-8">
+                                 <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className={`w-12 h-12 flex items-center justify-center rounded-full transition-all shadow-lg border border-white/10 ${isPlaying ? 'bg-indigo-500 text-white scale-110 shadow-indigo-500/30' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-indigo-300 hover:scale-105'}`}>
+                                    {isPlaying ? <Loader2 size={20} className="animate-spin" /> : <Volume2 size={20} />}
+                                 </button>
+                                 {currentItem.pronunciation && (
+                                     <span className="text-slate-400 font-mono text-sm tracking-wide bg-black/20 px-3 py-1.5 rounded-lg border border-white/5">{currentItem.pronunciation}</span>
+                                 )}
+                             </div>
 
-                     {/* Definition Section */}
-                     <div className="text-center py-5 bg-white/5 rounded-2xl border border-white/5 mb-4 shrink-0 relative overflow-hidden">
-                        <div className="absolute top-2 right-2">
-                             {currentRating !== null && (
-                                 <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${currentRating ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                                     {currentRating ? '已掌握' : '需复习'}
+                             {/* Context Area */}
+                             <div className="w-full bg-black/20 rounded-2xl p-5 border border-white/5 mb-2 shadow-inner">
+                                <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-bold flex items-center gap-2">
+                                    <Sparkles size={10} className="text-amber-400" /> 语境例句
+                                </div>
+                                <p className="text-slate-200 text-sm leading-relaxed italic line-clamp-4 font-light opacity-90">
+                                    "{currentItem.example}"
+                                </p>
+                             </div>
+
+                             {/* English Hint Toggle */}
+                             {hasEnglishHint && (
+                                 <div className="w-full mt-3">
+                                     <button 
+                                        onClick={(e) => { e.stopPropagation(); setShowEnglishHint(!showEnglishHint); }}
+                                        className="flex items-center gap-2 text-xs text-slate-500 hover:text-indigo-300 transition-colors mx-auto py-2 group"
+                                     >
+                                         {showEnglishHint ? <EyeOff size={14} className="group-hover:scale-110 transition-transform" /> : <Eye size={14} className="group-hover:scale-110 transition-transform" />}
+                                         {showEnglishHint ? "隐藏释义" : "查看英文释义"}
+                                     </button>
+                                     
+                                     <div className={`overflow-hidden transition-all duration-300 ${showEnglishHint ? 'max-h-20 opacity-100 mt-2' : 'max-h-0 opacity-0'}`}>
+                                         <p className="text-xs text-slate-400 text-center bg-white/5 p-3 rounded-xl border border-white/5">
+                                             {currentItem.definition}
+                                         </p>
+                                     </div>
                                  </div>
                              )}
-                        </div>
-                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-black/20 mb-3">
-                            <BarChart2 size={10} className="text-indigo-400" />
-                            <span className="text-[10px] text-slate-400 font-mono">Lv {currentLevel}</span>
-                        </div>
-                        <p className="text-base text-cyan-300 font-bold leading-relaxed px-3">{currentItem.translation}</p>
-                        {currentItem.definition && hasEnglishHint && <p className="text-[10px] text-slate-500 leading-relaxed px-4 mt-3 border-t border-white/5 pt-3 line-clamp-2">{currentItem.definition}</p>}
+                         </div>
+                         
+                         <div className="text-center text-[10px] text-slate-600 mt-2 font-medium">
+                             点击卡片翻转查看详情
+                         </div>
                      </div>
 
-                     {/* Example Section */}
-                     <div className="bg-slate-800/50 p-4 rounded-2xl border-l-4 border-indigo-500/50 relative group/example shadow-sm mb-4 flex-1">
-                        <div className="absolute right-2 top-2 p-1.5 text-slate-600">
-                             <PlayCircle size={16} />
-                        </div>
-                        <p className="text-sm text-slate-300 italic pr-6 mb-3 leading-relaxed">"{currentItem.example}"</p>
-                        {currentItem.example_zh && <p className="text-xs text-slate-500 leading-snug">{currentItem.example_zh}</p>}
-                        
-                        {/* Invisible button covering the area for click-to-play */}
-                        <button onClick={(e) => { e.stopPropagation(); speak(currentItem.example, speechRate); }} className="absolute inset-0 w-full h-full cursor-pointer z-10" aria-label="Play example"></button>
+                     {/* Back Side */}
+                     <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-3xl flex flex-col p-0 shadow-2xl overflow-hidden relative">
+                         {/* Back Header */}
+                         <div className="bg-black/20 border-b border-white/5 px-5 py-4 flex items-center justify-between shrink-0 min-h-[70px] backdrop-blur-md">
+                             <div className="flex flex-col gap-1 overflow-hidden mr-2">
+                                <div className="flex items-end gap-2">
+                                    <h3 className="text-2xl font-bold text-slate-200 truncate leading-none">{currentItem.text}</h3>
+                                    <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className="text-slate-500 hover:text-indigo-400 shrink-0 transition-colors pb-0.5">
+                                        <Volume2 size={18} />
+                                    </button>
+                                </div>
+                                
+                                <div className="flex items-center gap-1.5 opacity-60">
+                                    <Sparkles size={10} className="text-amber-400" />
+                                    <span className="text-[10px] text-slate-300 font-medium truncate max-w-[140px]">
+                                        {currentItem.extra_info || "通用词库"}
+                                    </span>
+                                </div>
+                             </div>
+
+                             <div className="flex items-center gap-3 shrink-0">
+                                 {/* Pronunciation Trigger */}
+                                 <button 
+                                     onClick={toggleRecording} 
+                                     className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border shadow-sm ${recordingState === 'recording' ? 'bg-rose-500 border-rose-400 text-white animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-indigo-600 hover:border-indigo-500 hover:text-white'}`}
+                                 >
+                                    {recordingState === 'recording' ? <Square size={14} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={18} className="animate-spin" /> : <Mic size={20} />)}
+                                 </button>
+
+                                 <button onClick={toggleCollect} className={`w-10 h-10 flex items-center justify-center rounded-full border border-transparent hover:bg-white/5 transition-colors ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-600 hover:text-rose-400'}`}>
+                                     <Heart size={22} />
+                                 </button>
+                             </div>
+                         </div>
+
+                         {/* Back Content */}
+                         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col">
+                             
+                             {/* Pronunciation Feedback Area */}
+                             {pronunciationResult && (
+                                 <div className="mb-4 bg-slate-800/50 rounded-xl p-3 border border-indigo-500/30 animate-in slide-in-from-top-2">
+                                     <div className="flex items-center justify-between mb-1">
+                                         <span className="text-[10px] text-indigo-300 uppercase font-bold tracking-wider">发音评测</span>
+                                         <div className="flex items-baseline gap-1">
+                                             <span className={`text-xl font-black ${pronunciationResult.score > 80 ? 'text-emerald-400' : 'text-amber-400'}`}>{pronunciationResult.score}</span>
+                                             <span className="text-[10px] text-slate-600">/100</span>
+                                         </div>
+                                     </div>
+                                     <p className="text-xs text-slate-400 leading-relaxed">{pronunciationResult.feedback}</p>
+                                 </div>
+                             )}
+
+                             {/* Definition Section */}
+                             <div className="text-center py-5 bg-white/5 rounded-2xl border border-white/5 mb-4 shrink-0 relative overflow-hidden">
+                                <div className="absolute top-2 right-2">
+                                     {currentRating !== null && (
+                                         <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${currentRating ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                                             {currentRating ? '已掌握' : '需复习'}
+                                         </div>
+                                     )}
+                                </div>
+                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-black/20 mb-3">
+                                    <BarChart2 size={10} className="text-indigo-400" />
+                                    <span className="text-[10px] text-slate-400 font-mono">Lv {currentLevel}</span>
+                                </div>
+                                <p className="text-base text-cyan-300 font-bold leading-relaxed px-3">{currentItem.translation}</p>
+                                {currentItem.definition && hasEnglishHint && <p className="text-[10px] text-slate-500 leading-relaxed px-4 mt-3 border-t border-white/5 pt-3 line-clamp-2">{currentItem.definition}</p>}
+                             </div>
+
+                             {/* Example Section */}
+                             <div className="bg-slate-800/50 p-4 rounded-2xl border-l-4 border-indigo-500/50 relative group/example shadow-sm mb-4 flex-1">
+                                <div className="absolute right-2 top-2 p-1.5 text-slate-600">
+                                     <PlayCircle size={16} />
+                                </div>
+                                <p className="text-sm text-slate-300 italic pr-6 mb-3 leading-relaxed">"{currentItem.example}"</p>
+                                {currentItem.example_zh && <p className="text-xs text-slate-500 leading-snug">{currentItem.example_zh}</p>}
+                                
+                                {/* Invisible button covering the area for click-to-play */}
+                                <button onClick={(e) => { e.stopPropagation(); speak(currentItem.example, speechRate); }} className="absolute inset-0 w-full h-full cursor-pointer z-10" aria-label="Play example"></button>
+                             </div>
+                         </div>
                      </div>
-                 </div>
-             </div>
-          </div>
+                  </div>
+              </div>
+          </CardProgressBorder>
        </div>
 
        {/* Action Buttons */}
