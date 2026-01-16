@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise, StatsHistory } from './types';
-import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises } from './services/contentGen';
+import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises, generateStudyItem } from './services/contentGen';
 import { getTotalLocalItemsCount } from './services/localRepository';
 import { StudySession } from './components/StudySession';
 import { ConversationMode } from './components/ConversationMode';
 import { ShadowingMode } from './components/ShadowingMode';
 import { PracticeSession } from './components/PracticeSession';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, Activity, Zap, Sparkles } from 'lucide-react';
+import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, Activity, Zap, Sparkles, Plus, X, Search, PenTool } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'shadowing' | 'exercise';
 
@@ -138,9 +138,65 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
     );
 };
 
+const AddWordModal: React.FC<{
+    show: boolean;
+    onClose: () => void;
+    onAdd: (text: string) => Promise<boolean>;
+    isProcessing: boolean;
+}> = ({ show, onClose, onAdd, isProcessing }) => {
+    const [input, setInput] = useState('');
+
+    if (!show) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={onClose}>
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
+                    <X size={20} />
+                </button>
+                <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="bg-indigo-500/20 p-3 rounded-xl text-indigo-400">
+                            <Sparkles size={24} />
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-bold text-white">录入新词</h3>
+                            <p className="text-xs text-slate-400">AI 将自动生成释义和例句</p>
+                        </div>
+                    </div>
+                    
+                    <textarea 
+                        value={input}
+                        onChange={e => setInput(e.target.value)}
+                        placeholder="输入你在生活中遇到的英语表达..."
+                        className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none text-lg"
+                        autoFocus
+                    />
+                    
+                    <button 
+                        onClick={() => onAdd(input)}
+                        disabled={!input.trim() || isProcessing}
+                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                        {isProcessing ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
+                        {isProcessing ? '正在生成词条...' : '生成并录入'}
+                    </button>
+                    
+                    <p className="text-[10px] text-center text-slate-500">
+                        录入后将自动安排在<span className="text-indigo-400">明天</span>进行复习巩固
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('dashboard');
   const [showSettings, setShowSettings] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isAddingWord, setIsAddingWord] = useState(false);
+
   const [vocabList, setVocabList] = useState<VocabularyItem[]>(() => {
     const saved = localStorage.getItem('lingua_vocab');
     return saved ? JSON.parse(saved) : [];
@@ -327,6 +383,57 @@ const App: React.FC = () => {
     setMode('dashboard');
   };
 
+  const handleManualAdd = async (text: string): Promise<boolean> => {
+      setIsAddingWord(true);
+      try {
+          // Check for duplicates
+          const cleanedInput = fastClean(text);
+          if (vocabList.some(v => fastClean(v.text) === cleanedInput)) {
+              alert("这个词已经在你的词库里了！");
+              setIsAddingWord(false);
+              return false;
+          }
+
+          const newItem = await generateStudyItem(text);
+          if (newItem) {
+              const now = Date.now();
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              tomorrow.setHours(0, 0, 0, 0); // Start of next day
+              // Alternatively, simply + 24 hours to be precise
+              // const reviewTime = now + 24 * 60 * 60 * 1000;
+              const reviewTime = tomorrow.getTime();
+
+              const vocabItem: VocabularyItem = {
+                  ...newItem,
+                  addedAt: now,
+                  lastReviewed: now,
+                  nextReviewAt: reviewTime, 
+                  masteryLevel: 0, // Treated as 'seen but not mastered'
+                  saved: true
+              };
+
+              setVocabList(prev => [vocabItem, ...prev]);
+              // Treating manual entry as "learning" a new item
+              setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + 1 }));
+              
+              setShowAddModal(false);
+              // Clear cache so next practice fetch includes this if logic permits (though review time is tomorrow)
+              localStorage.removeItem(CACHE_KEY); 
+              return true;
+          } else {
+              alert("生成失败，请稍后重试");
+              return false;
+          }
+      } catch (e) {
+          console.error(e);
+          alert("发生错误");
+          return false;
+      } finally {
+          setIsAddingWord(false);
+      }
+  };
+
   const initConversation = async () => {
       setIsGenerating('live');
       try {
@@ -348,9 +455,17 @@ const App: React.FC = () => {
     <div className="flex flex-col h-[100dvh] overflow-hidden font-sans">
       {/* Glass Header */}
       <header className="h-16 shrink-0 border-b border-white/5 bg-black/20 backdrop-blur-md flex items-center justify-between px-4 z-20 absolute top-0 w-full">
-        <div className="flex items-center gap-2 cursor-pointer group" onClick={() => setMode('dashboard')}>
-           <div className="bg-indigo-600/30 p-2 rounded-xl group-hover:bg-indigo-500/40 transition-colors"><GraduationCap className="text-indigo-300" size={20} /></div>
-           <h1 className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 to-purple-300 text-lg tracking-tight">LinguaFlow</h1>
+        <div className="flex items-center gap-3">
+           <button 
+             onClick={() => setShowAddModal(true)} 
+             className="relative bg-indigo-600/30 p-2 rounded-xl hover:bg-indigo-500/40 transition-all group active:scale-95"
+           >
+              <GraduationCap className="text-indigo-300 group-hover:text-indigo-200 transition-colors" size={20} />
+              <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center border-[3px] border-[#0f172a] shadow-sm">
+                  <Plus size={8} className="text-white" strokeWidth={4} />
+              </div>
+           </button>
+           <h1 onClick={() => setMode('dashboard')} className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 to-purple-300 text-lg tracking-tight cursor-pointer">LinguaFlow</h1>
         </div>
         <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/5 hover:bg-white/10 transition-colors backdrop-blur-sm"><Flame size={14} className="text-amber-500 fill-amber-500" /><span className="text-xs font-mono font-bold text-slate-300">{vocabList.length}</span></div>
@@ -455,6 +570,7 @@ const App: React.FC = () => {
         {mode === 'shadowing' && <ShadowingMode onBack={() => setMode('dashboard')} />}
 
         <SettingsModal show={showSettings} onClose={() => setShowSettings(false)} vocabList={vocabList} dailyStats={dailyStats} onRestore={d => { setVocabList(d.vocabList); localStorage.removeItem(CACHE_KEY); }} totalRepoCount={getTotalLocalItemsCount()} />
+        <AddWordModal show={showAddModal} onClose={() => setShowAddModal(false)} onAdd={handleManualAdd} isProcessing={isAddingWord} />
       </main>
     </div>
   );

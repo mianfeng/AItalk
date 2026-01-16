@@ -31,6 +31,61 @@ export async function generateDailyContent(count: number, existingVocab: Vocabul
 }
 
 /**
+ * Generates a full StudyItem from a simple text input (Manual Entry).
+ */
+export async function generateStudyItem(text: string): Promise<StudyItem | null> {
+  const ai = getGeminiClient();
+  if (!ai) return null;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: GENERAL_MODEL_NAME,
+      contents: `Analyze the English term or phrase: "${text}".
+      Create a study card for an English learner.
+      Return a JSON object with:
+      - text: The term itself (corrected casing/spelling if needed).
+      - translation: Concise Chinese translation.
+      - definition: Simple English definition.
+      - example: A natural, vivid example sentence using the term.
+      - example_zh: Chinese translation of the example.
+      - pronunciation: IPA symbol (e.g. /wɜːrd/).
+      - type: 'word' or 'idiom' or 'sentence'.
+      - extra_info: Brief usage note, origin, or synonym (in Chinese).`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+                text: { type: Type.STRING },
+                translation: { type: Type.STRING },
+                definition: { type: Type.STRING },
+                example: { type: Type.STRING },
+                example_zh: { type: Type.STRING },
+                pronunciation: { type: Type.STRING },
+                type: { type: Type.STRING, enum: ["word", "idiom", "sentence"] },
+                extra_info: { type: Type.STRING }
+            },
+            required: ["text", "translation", "definition", "example", "pronunciation", "type"]
+        }
+      }
+    });
+
+    const data = JSON.parse(response.text || "{}");
+    if (!data.text) return null;
+    
+    return {
+        id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        ...data,
+        saved: true,
+        masteryLevel: 0
+    };
+  } catch (e) {
+    console.error("Generate item error", e);
+    return null;
+  }
+}
+
+/**
  * Generates an initial conversation topic using Gemini.
  */
 export async function generateInitialTopic(): Promise<string> {
