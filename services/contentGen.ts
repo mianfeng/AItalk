@@ -322,17 +322,34 @@ export async function analyzeAudioResponse(audioBase64: string, currentTopic: st
   return JSON.parse(response.text || "{}");
 }
 
+export interface PronunciationResult {
+    score: number;
+    feedback: string;
+    ipa?: string;
+    breakdown?: { label: string; score: number }[];
+}
+
 /**
  * Evaluates pronunciation accuracy of a specific text.
  */
-export async function evaluatePronunciation(audioBase64: string, targetText: string): Promise<{ score: number; feedback: string }> {
+export async function evaluatePronunciation(audioBase64: string, targetText: string): Promise<PronunciationResult> {
   const ai = getGeminiClient();
   if (!ai) return { score: 0, feedback: "API Key Missing" };
   
   const response = await ai.models.generateContent({
     model: GENERAL_MODEL_NAME,
     contents: [
-      { text: `Evaluate the pronunciation accuracy of the user saying: "${targetText}". Be encouraging.` }, 
+      { text: `Analyze the user's pronunciation of: "${targetText}".
+      Output JSON:
+      {
+        "score": number (0-100),
+        "feedback": "Concise Chinese feedback focusing on major issues",
+        "ipa": "Standard IPA for the word",
+        "breakdown": [
+          { "label": "phoneme or letter", "score": number (0-100) }
+        ]
+      }
+      IMPORTANT: 'breakdown' MUST map individual phonemes/letters to scores to visualize pronunciation accuracy across the word. Example for 'hello': labels could be ['h', 'ə', 'l', 'oʊ'].` }, 
       { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
     ],
     config: { 
@@ -341,9 +358,20 @@ export async function evaluatePronunciation(audioBase64: string, targetText: str
             type: Type.OBJECT,
             properties: {
                 score: { type: Type.NUMBER },
-                feedback: { type: Type.STRING }
+                feedback: { type: Type.STRING },
+                ipa: { type: Type.STRING },
+                breakdown: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            label: { type: Type.STRING },
+                            score: { type: Type.NUMBER }
+                        }
+                    }
+                }
             },
-            required: ["score", "feedback"]
+            required: ["score", "feedback", "ipa", "breakdown"]
         } 
     }
   });

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { StudyItem, SessionResult } from '../types';
-import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, ArrowLeft, Eye, EyeOff, BarChart2 } from 'lucide-react';
-import { evaluatePronunciation } from '../services/contentGen';
+import { Check, X, Volume2, PlayCircle, AlertCircle, Loader2, Sparkles, Mic, Square, HelpCircle, Heart, ArrowRight, ArrowLeft, Eye, EyeOff, BarChart2, RotateCcw } from 'lucide-react';
+import { evaluatePronunciation, PronunciationResult } from '../services/contentGen';
 import { useSpeech } from '../hooks/useSpeech';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
@@ -14,101 +14,50 @@ interface StudySessionProps {
   onBack: () => void;
 }
 
-// 环绕进度边框组件 (Adapted for Study Mode with Indigo/Cyan theme)
+// 环绕进度边框组件
 const CardProgressBorder: React.FC<{ progress: number; children: React.ReactNode }> = ({ progress, children }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
     useLayoutEffect(() => {
         if (!containerRef.current) return;
-        
         const updateDimensions = () => {
             if (containerRef.current) {
                 const { offsetWidth, offsetHeight } = containerRef.current;
                 setDimensions({ width: offsetWidth, height: offsetHeight });
             }
         };
-
-        // Initial measurement
         updateDimensions();
-
-        const observer = new ResizeObserver(() => {
-            updateDimensions();
-        });
-
+        const observer = new ResizeObserver(() => updateDimensions());
         observer.observe(containerRef.current);
-
         return () => observer.disconnect();
     }, []);
 
-    // Config for the border
     const strokeWidth = 4;
-    const radius = 24; // Matches rounded-3xl (approx 24px)
+    const radius = 24; 
     const w = dimensions.width;
     const h = dimensions.height;
-    
-    // Calculate path length for a rounded rectangle
     const perimeter = 2 * (w - 2 * radius) + 2 * (h - 2 * radius) + (2 * Math.PI * radius);
     const totalLength = perimeter > 0 ? perimeter : 0;
-    
-    // Calculate offset. 
     const dashOffset = totalLength - (progress * totalLength);
 
     return (
         <div className="relative w-full h-full flex flex-col" ref={containerRef}>
-            {/* The actual content card */}
-            <div className="relative z-10 h-full w-full">
-                {children}
-            </div>
-
-            {/* SVG Overlay for Border */}
-            <svg 
-                className="absolute inset-0 pointer-events-none w-full h-full z-20 overflow-visible"
-                width={w} 
-                height={h}
-            >
+            <div className="relative z-10 h-full w-full">{children}</div>
+            <svg className="absolute inset-0 pointer-events-none w-full h-full z-20 overflow-visible" width={w} height={h}>
                 <defs>
                     <linearGradient id="studyProgressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#6366f1" /> {/* indigo-500 */}
-                        <stop offset="100%" stopColor="#22d3ee" /> {/* cyan-400 */}
+                        <stop offset="0%" stopColor="#6366f1" />
+                        <stop offset="100%" stopColor="#22d3ee" />
                     </linearGradient>
                     <filter id="studyGlow" x="-50%" y="-50%" width="200%" height="200%">
                         <feGaussianBlur stdDeviation="4" result="blur" />
                         <feComposite in="SourceGraphic" in2="blur" operator="over" />
                     </filter>
                 </defs>
-                
-                {/* Background Track - Centered on edge */}
-                <rect
-                    x={0}
-                    y={0}
-                    width={w}
-                    height={h}
-                    rx={radius}
-                    ry={radius}
-                    fill="none"
-                    stroke="rgba(255,255,255,0.08)"
-                    strokeWidth={strokeWidth}
-                />
-
-                {/* Progress Path - Centered on edge */}
+                <rect x={0} y={0} width={w} height={h} rx={radius} ry={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={strokeWidth} />
                 {totalLength > 0 && (
-                    <rect
-                        x={0}
-                        y={0}
-                        width={w}
-                        height={h}
-                        rx={radius}
-                        ry={radius}
-                        fill="none"
-                        stroke="url(#studyProgressGradient)"
-                        strokeWidth={strokeWidth}
-                        strokeDasharray={totalLength}
-                        strokeDashoffset={dashOffset}
-                        strokeLinecap="round"
-                        className="transition-all duration-700 ease-out"
-                        filter="url(#studyGlow)"
-                    />
+                    <rect x={0} y={0} width={w} height={h} rx={radius} ry={radius} fill="none" stroke="url(#studyProgressGradient)" strokeWidth={strokeWidth} strokeDasharray={totalLength} strokeDashoffset={dashOffset} strokeLinecap="round" className="transition-all duration-700 ease-out" filter="url(#studyGlow)" />
                 )}
             </svg>
         </div>
@@ -132,7 +81,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
   const [collectedIds, setCollectedIds] = useState<Set<string>>(new Set());
   
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'evaluating' | 'result'>('idle');
-  const [pronunciationResult, setPronunciationResult] = useState<{score: number, feedback: string} | null>(null);
+  const [pronunciationResult, setPronunciationResult] = useState<PronunciationResult | null>(null);
 
   const hasPlayedRef = useRef<number | null>(null);
 
@@ -179,8 +128,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
       );
   }
 
-  // Calculate progress based on current card. 
-  // (currentIndex + 1) / total gives a sense of completion as you move through.
   const progressValue = (currentIndex + 1) / items.length;
   
   const isCollected = collectedIds.has(currentItem.id);
@@ -225,10 +172,15 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
     e.stopPropagation();
     if (isRecording) {
         setRecordingState('evaluating');
-        const base64 = await stopRecording();
-        const result = await evaluatePronunciation(base64, currentItem.text);
-        setPronunciationResult(result);
-        setRecordingState('result');
+        try {
+            const base64 = await stopRecording();
+            const result = await evaluatePronunciation(base64, currentItem.text);
+            setPronunciationResult(result);
+            setRecordingState('result');
+        } catch (e) {
+            setRecordingState('idle');
+            alert("录音失败，请重试");
+        }
     } else {
         setPronunciationResult(null);
         setRecordingState('recording');
@@ -266,7 +218,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            </div>
        )}
 
-       {/* Header with Counter instead of Linear Bar */}
+       {/* Header */}
        <div className="w-full flex items-center justify-between mb-4 px-1">
            <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10">
                <ArrowLeft size={22} />
@@ -287,8 +239,8 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            </div>
        </div>
 
-       {/* Card Container wrapped with Progress Border */}
-       <div className={`w-full flex-1 max-h-[65vh] min-h-[400px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
+       {/* Card Container */}
+       <div className={`w-full flex-1 max-h-[65vh] min-h-[440px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
           <CardProgressBorder progress={progressValue}>
               <div className="perspective-1000 w-full h-full relative">
                   <div className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}>
@@ -319,7 +271,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                                  )}
                              </div>
 
-                             {/* Context Area */}
                              <div className="w-full bg-black/20 rounded-2xl p-5 border border-white/5 mb-2 shadow-inner">
                                 <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-bold flex items-center gap-2">
                                     <Sparkles size={10} className="text-amber-400" /> 语境例句
@@ -329,7 +280,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                                 </p>
                              </div>
 
-                             {/* English Hint Toggle */}
                              {hasEnglishHint && (
                                  <div className="w-full mt-3">
                                      <button 
@@ -354,7 +304,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                          </div>
                      </div>
 
-                     {/* Back Side */}
+                     {/* Back Side - Refined Layout for Visual Pronunciation */}
                      <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-3xl flex flex-col p-0 shadow-2xl overflow-hidden relative">
                          {/* Back Header */}
                          <div className="bg-black/20 border-b border-white/5 px-5 py-4 flex items-center justify-between shrink-0 min-h-[70px] backdrop-blur-md">
@@ -365,24 +315,16 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                                         <Volume2 size={18} />
                                     </button>
                                 </div>
-                                
-                                <div className="flex items-center gap-1.5 opacity-60">
-                                    <Sparkles size={10} className="text-amber-400" />
-                                    <span className="text-[10px] text-slate-300 font-medium truncate max-w-[140px]">
-                                        {currentItem.extra_info || "通用词库"}
-                                    </span>
-                                </div>
+                                <span className="text-sm font-mono text-slate-400/80 tracking-wide">{currentItem.pronunciation}</span>
                              </div>
 
                              <div className="flex items-center gap-3 shrink-0">
-                                 {/* Pronunciation Trigger */}
                                  <button 
                                      onClick={toggleRecording} 
                                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border shadow-sm ${recordingState === 'recording' ? 'bg-rose-500 border-rose-400 text-white animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-indigo-600 hover:border-indigo-500 hover:text-white'}`}
                                  >
                                     {recordingState === 'recording' ? <Square size={14} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={18} className="animate-spin" /> : <Mic size={20} />)}
                                  </button>
-
                                  <button onClick={toggleCollect} className={`w-10 h-10 flex items-center justify-center rounded-full border border-transparent hover:bg-white/5 transition-colors ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-600 hover:text-rose-400'}`}>
                                      <Heart size={22} />
                                  </button>
@@ -392,35 +334,54 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                          {/* Back Content */}
                          <div className="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col">
                              
-                             {/* Pronunciation Feedback Area */}
+                             {/* Pronunciation Visualization Area (Show if Result Exists) */}
                              {pronunciationResult && (
-                                 <div className="mb-4 bg-slate-800/50 rounded-xl p-3 border border-indigo-500/30 animate-in slide-in-from-top-2">
-                                     <div className="flex items-center justify-between mb-1">
-                                         <span className="text-[10px] text-indigo-300 uppercase font-bold tracking-wider">发音评测</span>
-                                         <div className="flex items-baseline gap-1">
-                                             <span className={`text-xl font-black ${pronunciationResult.score > 80 ? 'text-emerald-400' : 'text-amber-400'}`}>{pronunciationResult.score}</span>
-                                             <span className="text-[10px] text-slate-600">/100</span>
+                                 <div className="mb-5 bg-slate-800/40 rounded-2xl p-4 border border-indigo-500/20 animate-in slide-in-from-top-2">
+                                     <div className="flex flex-col md:flex-row items-center gap-4 mb-3">
+                                         
+                                         {/* Circular Score */}
+                                         <div className="relative w-16 h-16 shrink-0">
+                                             <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                                                 <circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
+                                                 <circle cx="50" cy="50" r="42" fill="none" stroke={pronunciationResult.score >= 80 ? "#10b981" : (pronunciationResult.score >= 60 ? "#f59e0b" : "#ef4444")} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(pronunciationResult.score / 100) * 263.89} 263.89`} className="transition-all duration-1000 ease-out" />
+                                             </svg>
+                                             <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                                 <span className={`text-lg font-bold ${pronunciationResult.score >= 80 ? 'text-emerald-400' : (pronunciationResult.score >= 60 ? 'text-amber-400' : 'text-rose-400')}`}>{pronunciationResult.score}</span>
+                                             </div>
                                          </div>
+
+                                         {/* Phoneme Bars */}
+                                         {pronunciationResult.breakdown && pronunciationResult.breakdown.length > 0 && (
+                                            <div className="flex-1 w-full overflow-x-auto custom-scrollbar pb-1">
+                                                <div className="flex items-end gap-2 h-16 px-1 min-w-fit">
+                                                    {pronunciationResult.breakdown.map((item, i) => (
+                                                        <div key={i} className="flex flex-col items-center gap-1 group min-w-[14px]">
+                                                            {/* Bar Container - Fixed height h-10 to ensure visibility */}
+                                                            <div className="w-1.5 md:w-2 bg-slate-700/50 rounded-full h-10 relative overflow-hidden flex flex-col justify-end">
+                                                                <div 
+                                                                    className={`w-full rounded-full transition-all duration-700 ease-out ${item.score >= 80 ? 'bg-emerald-500' : (item.score >= 60 ? 'bg-amber-500' : 'bg-rose-500')}`} 
+                                                                    style={{ height: `${item.score}%` }} 
+                                                                />
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-500 font-mono font-medium">{item.label}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                         )}
                                      </div>
-                                     <p className="text-xs text-slate-400 leading-relaxed">{pronunciationResult.feedback}</p>
+                                     <p className="text-xs text-slate-400 leading-relaxed bg-black/20 p-2 rounded-lg border border-white/5">{pronunciationResult.feedback}</p>
                                  </div>
                              )}
 
-                             {/* Definition Section */}
-                             <div className="text-center py-5 bg-white/5 rounded-2xl border border-white/5 mb-4 shrink-0 relative overflow-hidden">
-                                <div className="absolute top-2 right-2">
-                                     {currentRating !== null && (
-                                         <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${currentRating ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                                             {currentRating ? '已掌握' : '需复习'}
-                                         </div>
-                                     )}
-                                </div>
-                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-black/20 mb-3">
+                             {/* Definition Section (Only visible if not replaced by massive feedback, or if user scrolls) */}
+                             <div className="text-center py-4 bg-white/5 rounded-2xl border border-white/5 mb-4 shrink-0 relative overflow-hidden">
+                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-black/20 mb-2">
                                     <BarChart2 size={10} className="text-indigo-400" />
                                     <span className="text-[10px] text-slate-400 font-mono">Lv {currentLevel}</span>
                                 </div>
-                                <p className="text-base text-cyan-300 font-bold leading-relaxed px-3">{currentItem.translation}</p>
-                                {currentItem.definition && hasEnglishHint && <p className="text-[10px] text-slate-500 leading-relaxed px-4 mt-3 border-t border-white/5 pt-3 line-clamp-2">{currentItem.definition}</p>}
+                                <p className="text-xl text-cyan-300 font-bold leading-relaxed px-3 mb-1">{currentItem.translation}</p>
+                                {currentItem.definition && <p className="text-[10px] text-slate-500 leading-relaxed px-4 line-clamp-2 opacity-70">{currentItem.definition}</p>}
                              </div>
 
                              {/* Example Section */}
@@ -430,8 +391,6 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                                 </div>
                                 <p className="text-sm text-slate-300 italic pr-6 mb-3 leading-relaxed">"{currentItem.example}"</p>
                                 {currentItem.example_zh && <p className="text-xs text-slate-500 leading-snug">{currentItem.example_zh}</p>}
-                                
-                                {/* Invisible button covering the area for click-to-play */}
                                 <button onClick={(e) => { e.stopPropagation(); speak(currentItem.example, speechRate); }} className="absolute inset-0 w-full h-full cursor-pointer z-10" aria-label="Play example"></button>
                              </div>
                          </div>
