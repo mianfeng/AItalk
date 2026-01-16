@@ -8,7 +8,7 @@ import { ConversationMode } from './components/ConversationMode';
 import { ShadowingMode } from './components/ShadowingMode';
 import { PracticeSession } from './components/PracticeSession';
 import { SettingsModal } from './components/SettingsModal';
-import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, Activity, Zap, Sparkles, Plus, X, Search, PenTool } from 'lucide-react';
+import { Mic, Book, Flame, GraduationCap, Settings, Shuffle, Repeat, Loader2, Activity, Zap, Sparkles, Plus, X, Search, PenTool, Check, ChevronRight, RotateCcw } from 'lucide-react';
 
 type AppMode = 'dashboard' | 'study' | 'live' | 'shadowing' | 'exercise';
 
@@ -141,51 +141,129 @@ const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
 const AddWordModal: React.FC<{
     show: boolean;
     onClose: () => void;
-    onAdd: (text: string) => Promise<boolean>;
-    isProcessing: boolean;
-}> = ({ show, onClose, onAdd, isProcessing }) => {
+    onConfirm: (item: StudyItem) => void;
+    existingVocab: VocabularyItem[];
+}> = ({ show, onClose, onConfirm, existingVocab }) => {
     const [input, setInput] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [previewItem, setPreviewItem] = useState<StudyItem | null>(null);
+
+    // Reset state when modal opens/closes
+    useEffect(() => {
+        if (!show) {
+            setInput('');
+            setLoading(false);
+            setPreviewItem(null);
+        }
+    }, [show]);
+
+    const handleGenerate = async () => {
+        if (!input.trim()) return;
+        
+        // Check duplicates
+        const cleanedInput = fastClean(input);
+        if (existingVocab.some(v => fastClean(v.text) === cleanedInput)) {
+            alert("这个词已经在你的词库里了！");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const item = await generateStudyItem(input);
+            if (item) {
+                setPreviewItem(item);
+            } else {
+                alert("生成失败，请重试");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("网络错误");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     if (!show) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={onClose}>
-            <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative" onClick={e => e.stopPropagation()}>
-                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-[2rem] p-6 shadow-2xl relative overflow-hidden" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors z-10">
                     <X size={20} />
                 </button>
-                <div className="flex flex-col gap-4">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="bg-indigo-500/20 p-3 rounded-xl text-indigo-400">
-                            <Sparkles size={24} />
+                
+                {/* Header */}
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-indigo-500/20 p-3 rounded-xl text-indigo-400">
+                        {previewItem ? <Check size={24} /> : <Sparkles size={24} />}
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-white">{previewItem ? '确认录入' : '录入新词'}</h3>
+                        <p className="text-xs text-slate-400">{previewItem ? '请确认生成的信息是否准确' : 'AI 将自动生成释义和例句'}</p>
+                    </div>
+                </div>
+
+                {!previewItem ? (
+                    <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
+                        <textarea 
+                            value={input}
+                            onChange={e => setInput(e.target.value)}
+                            placeholder="输入你在生活中遇到的英语表达..."
+                            className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none text-lg"
+                            autoFocus
+                        />
+                        
+                        <button 
+                            onClick={handleGenerate}
+                            disabled={!input.trim() || loading}
+                            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/20"
+                        >
+                            {loading ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
+                            {loading ? '正在生成...' : '生成预览'}
+                        </button>
+                        
+                        <p className="text-[10px] text-center text-slate-500">
+                            录入后将自动安排在<span className="text-indigo-400">明天</span>进行复习巩固
+                        </p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-right-4">
+                        {/* Preview Card */}
+                        <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-5 relative group">
+                            <div className="flex items-baseline gap-2 mb-1">
+                                <h2 className="text-2xl font-bold text-white">{previewItem.text}</h2>
+                                {previewItem.pronunciation && <span className="text-sm font-mono text-slate-500">{previewItem.pronunciation}</span>}
+                            </div>
+                            <div className="text-emerald-400 font-medium mb-3">{previewItem.translation}</div>
+                            
+                            <div className="space-y-3 text-sm">
+                                <div className="bg-white/5 p-3 rounded-lg border border-white/5">
+                                    <p className="text-slate-300 italic mb-1">"{previewItem.example}"</p>
+                                    <p className="text-slate-500 text-xs">{previewItem.example_zh}</p>
+                                </div>
+                                <div className="text-xs text-slate-400 leading-relaxed pl-1">
+                                    <span className="text-indigo-400 font-bold mr-1">DEF:</span>
+                                    {previewItem.definition}
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <h3 className="text-xl font-bold text-white">录入新词</h3>
-                            <p className="text-xs text-slate-400">AI 将自动生成释义和例句</p>
+
+                        <div className="grid grid-cols-2 gap-3 mt-2">
+                             <button 
+                                onClick={() => setPreviewItem(null)}
+                                className="py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+                            >
+                                <RotateCcw size={16} /> 返回修改
+                            </button>
+                            <button 
+                                onClick={() => { onConfirm(previewItem); onClose(); }}
+                                className="py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20"
+                            >
+                                <Check size={18} /> 确认录入
+                            </button>
                         </div>
                     </div>
-                    
-                    <textarea 
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        placeholder="输入你在生活中遇到的英语表达..."
-                        className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none text-lg"
-                        autoFocus
-                    />
-                    
-                    <button 
-                        onClick={() => onAdd(input)}
-                        disabled={!input.trim() || isProcessing}
-                        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
-                    >
-                        {isProcessing ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
-                        {isProcessing ? '正在生成词条...' : '生成并录入'}
-                    </button>
-                    
-                    <p className="text-[10px] text-center text-slate-500">
-                        录入后将自动安排在<span className="text-indigo-400">明天</span>进行复习巩固
-                    </p>
-                </div>
+                )}
             </div>
         </div>
     );
@@ -195,7 +273,6 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('dashboard');
   const [showSettings, setShowSettings] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [isAddingWord, setIsAddingWord] = useState(false);
 
   const [vocabList, setVocabList] = useState<VocabularyItem[]>(() => {
     const saved = localStorage.getItem('lingua_vocab');
@@ -383,55 +460,25 @@ const App: React.FC = () => {
     setMode('dashboard');
   };
 
-  const handleManualAdd = async (text: string): Promise<boolean> => {
-      setIsAddingWord(true);
-      try {
-          // Check for duplicates
-          const cleanedInput = fastClean(text);
-          if (vocabList.some(v => fastClean(v.text) === cleanedInput)) {
-              alert("这个词已经在你的词库里了！");
-              setIsAddingWord(false);
-              return false;
-          }
+  const handleSaveWord = (newItem: StudyItem) => {
+      const now = Date.now();
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0); // Start of next day
+      const reviewTime = tomorrow.getTime();
 
-          const newItem = await generateStudyItem(text);
-          if (newItem) {
-              const now = Date.now();
-              const tomorrow = new Date();
-              tomorrow.setDate(tomorrow.getDate() + 1);
-              tomorrow.setHours(0, 0, 0, 0); // Start of next day
-              // Alternatively, simply + 24 hours to be precise
-              // const reviewTime = now + 24 * 60 * 60 * 1000;
-              const reviewTime = tomorrow.getTime();
+      const vocabItem: VocabularyItem = {
+          ...newItem,
+          addedAt: now,
+          lastReviewed: now,
+          nextReviewAt: reviewTime, 
+          masteryLevel: 0, // Treated as 'seen but not mastered'
+          saved: true
+      };
 
-              const vocabItem: VocabularyItem = {
-                  ...newItem,
-                  addedAt: now,
-                  lastReviewed: now,
-                  nextReviewAt: reviewTime, 
-                  masteryLevel: 0, // Treated as 'seen but not mastered'
-                  saved: true
-              };
-
-              setVocabList(prev => [vocabItem, ...prev]);
-              // Treating manual entry as "learning" a new item
-              setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + 1 }));
-              
-              setShowAddModal(false);
-              // Clear cache so next practice fetch includes this if logic permits (though review time is tomorrow)
-              localStorage.removeItem(CACHE_KEY); 
-              return true;
-          } else {
-              alert("生成失败，请稍后重试");
-              return false;
-          }
-      } catch (e) {
-          console.error(e);
-          alert("发生错误");
-          return false;
-      } finally {
-          setIsAddingWord(false);
-      }
+      setVocabList(prev => [vocabItem, ...prev]);
+      setDailyStats(prev => ({ ...prev, itemsLearned: prev.itemsLearned + 1 }));
+      localStorage.removeItem(CACHE_KEY); 
   };
 
   const initConversation = async () => {
@@ -570,7 +617,7 @@ const App: React.FC = () => {
         {mode === 'shadowing' && <ShadowingMode onBack={() => setMode('dashboard')} />}
 
         <SettingsModal show={showSettings} onClose={() => setShowSettings(false)} vocabList={vocabList} dailyStats={dailyStats} onRestore={d => { setVocabList(d.vocabList); localStorage.removeItem(CACHE_KEY); }} totalRepoCount={getTotalLocalItemsCount()} />
-        <AddWordModal show={showAddModal} onClose={() => setShowAddModal(false)} onAdd={handleManualAdd} isProcessing={isAddingWord} />
+        <AddWordModal show={showAddModal} onClose={() => setShowAddModal(false)} onConfirm={handleSaveWord} existingVocab={vocabList} />
       </main>
     </div>
   );
