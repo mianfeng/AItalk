@@ -219,7 +219,7 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
        )}
 
        {/* Header */}
-       <div className="w-full flex items-center justify-between mb-4 px-1">
+       <div className="w-full flex items-center justify-between mb-4 px-1 shrink-0">
            <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/10">
                <ArrowLeft size={22} />
            </button>
@@ -239,8 +239,8 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
            </div>
        </div>
 
-       {/* Card Container */}
-       <div className={`w-full flex-1 max-h-[65vh] min-h-[440px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
+       {/* Card Container - Adjusted height for mobile */}
+       <div className={`w-full flex-1 max-h-[75vh] min-h-[420px] relative group my-auto transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-x-[-20px] scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
           <CardProgressBorder progress={progressValue}>
               <div className="perspective-1000 w-full h-full relative">
                   <div className={`w-full h-full transition-transform duration-500 transform-style-3d relative ${isFlipped ? 'rotate-y-180' : ''}`}>
@@ -306,41 +306,48 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
 
                      {/* Back Side - Refined Layout for Visual Pronunciation */}
                      <div className="absolute inset-0 backface-hidden rotate-y-180 bg-slate-900 rounded-3xl flex flex-col p-0 shadow-2xl overflow-hidden relative">
-                         {/* Back Header */}
-                         <div className="bg-black/20 border-b border-white/5 px-5 py-4 flex items-center justify-between shrink-0 min-h-[70px] backdrop-blur-md">
-                             <div className="flex flex-col gap-1 overflow-hidden mr-2">
-                                <div className="flex items-end gap-2">
-                                    <h3 className="text-2xl font-bold text-slate-200 truncate leading-none">{currentItem.text}</h3>
-                                    <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className="text-slate-500 hover:text-indigo-400 shrink-0 transition-colors pb-0.5">
-                                        <Volume2 size={18} />
-                                    </button>
+                         {/* Back Header - Optimized: Translation next to Word */}
+                         <div className="bg-black/20 border-b border-white/5 px-4 md:px-5 py-3 md:py-4 flex items-center justify-between shrink-0 min-h-[70px] backdrop-blur-md">
+                             <div className="flex flex-col gap-1 overflow-hidden mr-2 flex-1">
+                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                                    <h3 className="text-xl md:text-2xl font-bold text-slate-200 leading-tight">{currentItem.text}</h3>
+                                    <span className="text-sm md:text-base font-medium text-emerald-400 truncate leading-tight">{currentItem.translation}</span>
                                 </div>
-                                <span className="text-sm font-mono text-slate-400/80 tracking-wide">{currentItem.pronunciation}</span>
+                                <div className="flex items-center gap-2 md:gap-3">
+                                    <span className="text-xs md:text-sm font-mono text-slate-400/80 tracking-wide">{currentItem.pronunciation}</span>
+                                    <button onClick={(e) => { e.stopPropagation(); speak(currentItem.text, speechRate); }} className="text-slate-500 hover:text-indigo-400 shrink-0 transition-colors pb-0.5">
+                                        <Volume2 size={16} />
+                                    </button>
+                                    <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-white/10 bg-white/5 ml-auto md:ml-0">
+                                        <BarChart2 size={10} className="text-indigo-400" />
+                                        <span className="text-[10px] text-slate-400 font-mono">Lv {currentLevel}</span>
+                                    </div>
+                                </div>
                              </div>
 
-                             <div className="flex items-center gap-3 shrink-0">
+                             <div className="flex items-center gap-2 md:gap-3 shrink-0 self-start mt-1">
                                  <button 
                                      onClick={toggleRecording} 
-                                     className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border shadow-sm ${recordingState === 'recording' ? 'bg-rose-500 border-rose-400 text-white animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-indigo-600 hover:border-indigo-500 hover:text-white'}`}
+                                     className={`w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center transition-all border shadow-sm ${recordingState === 'recording' ? 'bg-rose-500 border-rose-400 text-white animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-indigo-600 hover:border-indigo-500 hover:text-white'}`}
                                  >
-                                    {recordingState === 'recording' ? <Square size={14} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={18} className="animate-spin" /> : <Mic size={20} />)}
+                                    {recordingState === 'recording' ? <Square size={12} fill="currentColor" /> : (recordingState === 'evaluating' ? <Loader2 size={16} className="animate-spin" /> : <Mic size={18} />)}
                                  </button>
-                                 <button onClick={toggleCollect} className={`w-10 h-10 flex items-center justify-center rounded-full border border-transparent hover:bg-white/5 transition-colors ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-600 hover:text-rose-400'}`}>
-                                     <Heart size={22} />
+                                 <button onClick={toggleCollect} className={`w-9 h-9 md:w-10 md:h-10 flex items-center justify-center rounded-full border border-transparent hover:bg-white/5 transition-colors ${isCollected ? 'text-rose-500 fill-rose-500' : 'text-slate-600 hover:text-rose-400'}`}>
+                                     <Heart size={20} />
                                  </button>
                              </div>
                          </div>
 
                          {/* Back Content */}
-                         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 flex flex-col">
+                         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-5 flex flex-col">
                              
                              {/* Pronunciation Visualization Area (Show if Result Exists) */}
                              {pronunciationResult && (
-                                 <div className="mb-5 bg-slate-800/40 rounded-2xl p-4 border border-indigo-500/20 animate-in slide-in-from-top-2">
-                                     <div className="flex flex-col md:flex-row items-center gap-4 mb-3">
+                                 <div className="mb-4 bg-slate-800/40 rounded-2xl p-3 md:p-4 border border-indigo-500/20 animate-in slide-in-from-top-2">
+                                     <div className="flex items-center gap-4 mb-3">
                                          
                                          {/* Circular Score */}
-                                         <div className="relative w-16 h-16 shrink-0">
+                                         <div className="relative w-14 h-14 md:w-16 md:h-16 shrink-0">
                                              <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
                                                  <circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
                                                  <circle cx="50" cy="50" r="42" fill="none" stroke={pronunciationResult.score >= 80 ? "#10b981" : (pronunciationResult.score >= 60 ? "#f59e0b" : "#ef4444")} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${(pronunciationResult.score / 100) * 263.89} 263.89`} className="transition-all duration-1000 ease-out" />
@@ -353,43 +360,41 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
                                          {/* Phoneme Bars */}
                                          {pronunciationResult.breakdown && pronunciationResult.breakdown.length > 0 && (
                                             <div className="flex-1 w-full overflow-x-auto custom-scrollbar pb-1">
-                                                <div className="flex items-end gap-2 h-16 px-1 min-w-fit">
+                                                <div className="flex items-end justify-center gap-1.5 md:gap-2 h-14 md:h-16 px-1 min-w-fit mx-auto">
                                                     {pronunciationResult.breakdown.map((item, i) => (
-                                                        <div key={i} className="flex flex-col items-center gap-1 group min-w-[14px]">
-                                                            {/* Bar Container - Fixed height h-10 to ensure visibility */}
-                                                            <div className="w-1.5 md:w-2 bg-slate-700/50 rounded-full h-10 relative overflow-hidden flex flex-col justify-end">
+                                                        <div key={i} className="flex flex-col items-center gap-1 group min-w-[12px] md:min-w-[14px]">
+                                                            {/* Bar Container - Fixed height to ensure visibility */}
+                                                            <div className="w-2 md:w-2.5 bg-slate-700/50 rounded-full h-10 md:h-12 relative overflow-hidden flex flex-col justify-end">
                                                                 <div 
                                                                     className={`w-full rounded-full transition-all duration-700 ease-out ${item.score >= 80 ? 'bg-emerald-500' : (item.score >= 60 ? 'bg-amber-500' : 'bg-rose-500')}`} 
                                                                     style={{ height: `${item.score}%` }} 
                                                                 />
                                                             </div>
-                                                            <span className="text-[10px] text-slate-500 font-mono font-medium">{item.label}</span>
+                                                            <span className="text-[10px] text-slate-500 font-mono font-medium uppercase">{item.label}</span>
                                                         </div>
                                                     ))}
                                                 </div>
                                             </div>
                                          )}
                                      </div>
-                                     <p className="text-xs text-slate-400 leading-relaxed bg-black/20 p-2 rounded-lg border border-white/5">{pronunciationResult.feedback}</p>
+                                     <p className="text-xs text-slate-400 leading-relaxed bg-black/20 p-2.5 rounded-xl border border-white/5">{pronunciationResult.feedback}</p>
                                  </div>
                              )}
 
-                             {/* Definition Section (Only visible if not replaced by massive feedback, or if user scrolls) */}
-                             <div className="text-center py-4 bg-white/5 rounded-2xl border border-white/5 mb-4 shrink-0 relative overflow-hidden">
-                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-white/10 bg-black/20 mb-2">
-                                    <BarChart2 size={10} className="text-indigo-400" />
-                                    <span className="text-[10px] text-slate-400 font-mono">Lv {currentLevel}</span>
-                                </div>
-                                <p className="text-xl text-cyan-300 font-bold leading-relaxed px-3 mb-1">{currentItem.translation}</p>
-                                {currentItem.definition && <p className="text-[10px] text-slate-500 leading-relaxed px-4 line-clamp-2 opacity-70">{currentItem.definition}</p>}
-                             </div>
+                             {/* Definition Section (Optimized: Removed large translation block, keeping only distinct definition/extra info) */}
+                             {(currentItem.definition || currentItem.extra_info) && (
+                                 <div className="bg-white/5 rounded-xl p-3 border border-white/5 mb-3 shrink-0">
+                                     {currentItem.definition && <p className="text-sm text-slate-300 leading-relaxed mb-1">{currentItem.definition}</p>}
+                                     {currentItem.extra_info && <p className="text-xs text-amber-500/80">{currentItem.extra_info}</p>}
+                                 </div>
+                             )}
 
                              {/* Example Section */}
-                             <div className="bg-slate-800/50 p-4 rounded-2xl border-l-4 border-indigo-500/50 relative group/example shadow-sm mb-4 flex-1">
+                             <div className="bg-slate-800/50 p-3 md:p-4 rounded-2xl border-l-4 border-indigo-500/50 relative group/example shadow-sm mb-4 flex-1">
                                 <div className="absolute right-2 top-2 p-1.5 text-slate-600">
                                      <PlayCircle size={16} />
                                 </div>
-                                <p className="text-sm text-slate-300 italic pr-6 mb-3 leading-relaxed">"{currentItem.example}"</p>
+                                <p className="text-sm text-slate-300 italic pr-6 mb-2 leading-relaxed">"{currentItem.example}"</p>
                                 {currentItem.example_zh && <p className="text-xs text-slate-500 leading-snug">{currentItem.example_zh}</p>}
                                 <button onClick={(e) => { e.stopPropagation(); speak(currentItem.example, speechRate); }} className="absolute inset-0 w-full h-full cursor-pointer z-10" aria-label="Play example"></button>
                              </div>
@@ -401,18 +406,18 @@ export const StudySession: React.FC<StudySessionProps> = ({ items, initialIndex,
        </div>
 
        {/* Action Buttons */}
-       <div className={`flex items-center gap-4 mt-6 w-full justify-center shrink-0 pb-6 transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
+       <div className={`flex items-center gap-3 md:gap-4 mt-4 md:mt-6 w-full justify-center shrink-0 pb-4 md:pb-6 transition-all duration-300 ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
           {!isFlipped ? (
              <>
-                <button onClick={() => handleRate(false)} className="flex-1 py-4 rounded-2xl bg-slate-800 border border-slate-700 text-slate-400 font-bold hover:bg-slate-700 hover:text-rose-400 hover:border-rose-500/30 transition-all flex justify-center items-center gap-2 active:scale-95 shadow-lg group text-sm">
+                <button onClick={() => handleRate(false)} className="flex-1 py-3 md:py-4 rounded-2xl bg-slate-800 border border-slate-700 text-slate-400 font-bold hover:bg-slate-700 hover:text-rose-400 hover:border-rose-500/30 transition-all flex justify-center items-center gap-2 active:scale-95 shadow-lg group text-sm">
                    <X size={18} className="text-slate-500 group-hover:text-rose-400 transition-colors" /> 需复习
                 </button>
-                <button onClick={() => handleRate(true)} className="flex-1 py-4 rounded-2xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 hover:shadow-indigo-500/30 shadow-lg transition-all flex justify-center items-center gap-2 active:scale-95 text-sm border-t border-white/10">
+                <button onClick={() => handleRate(true)} className="flex-1 py-3 md:py-4 rounded-2xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 hover:shadow-indigo-500/30 shadow-lg transition-all flex justify-center items-center gap-2 active:scale-95 text-sm border-t border-white/10">
                    <Check size={18} /> 掌握了
                 </button>
              </>
           ) : (
-             <button onClick={handleNext} className="w-full py-4 rounded-2xl bg-cyan-600 text-white font-bold hover:bg-cyan-500 hover:shadow-cyan-500/30 transition-all flex justify-center items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-lg active:scale-95 text-sm border-t border-white/10">
+             <button onClick={handleNext} className="w-full py-3 md:py-4 rounded-2xl bg-cyan-600 text-white font-bold hover:bg-cyan-500 hover:shadow-cyan-500/30 transition-all flex justify-center items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-lg active:scale-95 text-sm border-t border-white/10">
                 下一个 <ArrowRight size={18} />
              </button>
           )}
