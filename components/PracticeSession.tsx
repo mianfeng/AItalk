@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
-import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge, Sparkles, X } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge, Sparkles, X, Mic, Square } from 'lucide-react';
 import { sanitizeForTTS } from '../services/audioUtils';
 import { useSpeech } from '../hooks/useSpeech';
+import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import { evaluatePronunciation, evaluateSentencePronunciation, PronunciationResult, SentencePronunciationResult } from '../services/contentGen';
 
 interface PracticeSessionProps {
   exercises: PracticeExercise[];
@@ -115,6 +117,79 @@ const CardProgressBorder: React.FC<{ progress: number; children: React.ReactNode
     );
 };
 
+// Word Practice Modal Component
+const WordPracticeModal: React.FC<{
+    word: string;
+    onClose: () => void;
+}> = ({ word, onClose }) => {
+    const [status, setStatus] = useState<'idle' | 'recording' | 'processing' | 'result'>('idle');
+    const [result, setResult] = useState<PronunciationResult | null>(null);
+    const { startRecording, stopRecording } = useAudioRecorder();
+    const { speak } = useSpeech();
+
+    const handleToggleRecord = async () => {
+        if (status === 'idle' || status === 'result') {
+            setStatus('recording');
+            startRecording();
+        } else if (status === 'recording') {
+            setStatus('processing');
+            try {
+                const audio = await stopRecording();
+                const evalResult = await evaluatePronunciation(audio, word);
+                setResult(evalResult);
+                setStatus('result');
+            } catch (e) {
+                console.error(e);
+                alert("录音失败");
+                setStatus('idle');
+            }
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in" onClick={onClose}>
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-xs rounded-3xl p-6 shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={20} /></button>
+                
+                <div className="flex flex-col items-center gap-4">
+                    <h3 className="text-2xl font-bold text-white">{word}</h3>
+                    <button onClick={() => speak(word)} className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-indigo-400"><Volume2 size={20} /></button>
+                    
+                    {status === 'result' && result && (
+                        <div className="flex flex-col items-center gap-2 mb-2">
+                             <div className={`text-4xl font-bold ${result.score >= 80 ? 'text-emerald-400' : (result.score >= 60 ? 'text-amber-400' : 'text-rose-400')}`}>
+                                 {result.score}
+                             </div>
+                             <p className="text-xs text-slate-400 text-center">{result.feedback}</p>
+                             {result.breakdown && (
+                                <div className="flex gap-1 mt-2">
+                                    {result.breakdown.map((b, i) => (
+                                        <div key={i} className="flex flex-col items-center">
+                                            <div className="w-1.5 h-8 bg-slate-800 rounded-full overflow-hidden relative">
+                                                <div className={`absolute bottom-0 w-full ${b.score >= 80 ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{height: `${b.score}%`}} />
+                                            </div>
+                                            <span className="text-[8px] text-slate-500 mt-1">{b.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                             )}
+                        </div>
+                    )}
+
+                    <button 
+                        onClick={handleToggleRecord}
+                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${status === 'recording' ? 'bg-rose-500 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-500'}`}
+                    >
+                        {status === 'recording' ? <Square size={24} fill="currentColor" className="text-white" /> : 
+                        (status === 'processing' ? <Loader2 size={24} className="animate-spin text-white" /> : <Mic size={24} className="text-white" />)}
+                    </button>
+                    <p className="text-xs text-slate-500">{status === 'recording' ? '点击停止' : '点击跟读'}</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onComplete, onBack, onSecondQuestionReached }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<(string | null)[]>([]);
@@ -123,12 +198,18 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [showExplanation, setShowExplanation] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
   
+  // Sentence Practice State
+  const [isRecordingSentence, setIsRecordingSentence] = useState(false);
+  const [sentenceEval, setSentenceEval] = useState<SentencePronunciationResult | null>(null);
+  const [practiceWord, setPracticeWord] = useState<string | null>(null); // To trigger modal
+
   const [speechRate, setSpeechRate] = useState<number>(() => {
     const saved = localStorage.getItem('lingua_practice_rate');
     return saved ? parseFloat(saved) : 1.0;
   });
 
-  const { speak, isPlaying, cancel: cancelSpeech } = useSpeech();
+  const { speak, isPlaying } = useSpeech();
+  const { startRecording, stopRecording } = useAudioRecorder();
 
   const triggeredPrefetchRef = useRef(false);
   const [sessionResults, setSessionResults] = useState<Map<string, boolean>>(new Map());
@@ -153,6 +234,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         setUserAnswers(new Array((currentExercise.correctAnswers || []).length).fill(null)); 
         setIsCorrect(null);
         setShowExplanation(false);
+        setSentenceEval(null); // Reset sentence eval
     }
     
     if (currentIndex === 1 && !triggeredPrefetchRef.current && onSecondQuestionReached) {
@@ -240,6 +322,38 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
     );
   };
 
+  const handleToggleSentenceRecording = async () => {
+    if (isRecordingSentence) {
+        setIsRecordingSentence(false);
+        try {
+            const audio = await stopRecording();
+            const result = await evaluateSentencePronunciation(audio, currentExercise.sentence);
+            setSentenceEval(result);
+        } catch (e) {
+            console.error(e);
+            alert("评分失败");
+        }
+    } else {
+        setSentenceEval(null);
+        setIsRecordingSentence(true);
+        startRecording();
+    }
+  };
+
+  // Helper to color words based on sentence evaluation
+  const getWordColorClass = (word: string, index: number) => {
+      if (!sentenceEval || !sentenceEval.words) return 'text-slate-300';
+      // Try to find matching word by index or content. 
+      // API might return different tokenization, so simple matching by index is risky but often works for simple sentences.
+      // We will try to map loosely.
+      const evalWord = sentenceEval.words[index];
+      if (evalWord) {
+          if (evalWord.score >= 80) return 'text-emerald-400';
+          if (evalWord.score < 70) return 'text-amber-400'; // Yellow/Amber
+      }
+      return 'text-slate-300';
+  };
+
   const renderSentenceWithSlots = () => {
     if (!currentExercise || !currentExercise.quizQuestion) return null;
     const parts = currentExercise.quizQuestion.split('____');
@@ -320,6 +434,10 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   return (
     <div className="h-full flex flex-col p-4 md:p-6 overflow-y-auto custom-scrollbar">
+      {practiceWord && (
+          <WordPracticeModal word={practiceWord} onClose={() => setPracticeWord(null)} />
+      )}
+      
       <div className="max-w-xl mx-auto w-full flex flex-col gap-6 h-full pb-10">
         
         {/* Header - Minimalist */}
@@ -377,13 +495,14 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                             </div>
                         </div>
                         
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                        {/* Word Cards Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6">
                             {currentExercise?.targetWords?.map((word, idx) => {
                                 const stats = vocabMap.get(word.toLowerCase()) || { level: 0, pronunciation: "" };
                                 const pronunciation = currentExercise.targetWordPronunciations?.[idx] || stats.pronunciation;
                                 
                                 return (
-                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-3 rounded-xl border text-xs font-medium flex flex-col items-center justify-center transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg' : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}>
+                                    <button key={idx} onClick={() => setPracticeWord(word)} className={`px-3 py-3 rounded-xl border text-xs font-medium flex flex-col items-center justify-center transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg' : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}>
                                         <div className="flex items-center justify-between w-full mb-1 opacity-70">
                                             <div className="flex items-center gap-1 scale-90 origin-left">
                                                 <BarChart size={10} />
@@ -398,6 +517,45 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                                     </button>
                                 );
                             })}
+                        </div>
+                        
+                        {/* Sentence Shadowing Section */}
+                        <div className="mb-6 bg-black/20 rounded-2xl border border-white/5 p-4">
+                            <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-3 font-bold flex items-center gap-2">
+                                <Mic size={12} className="text-amber-400" /> 句子跟读
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-1.5 mb-4 justify-center">
+                                {currentExercise.sentence.split(' ').map((word, i) => (
+                                    <span 
+                                        key={i} 
+                                        onClick={() => setPracticeWord(word.replace(/[^a-zA-Z]/g, ''))}
+                                        className={`text-lg font-medium cursor-pointer hover:underline decoration-white/20 transition-colors ${getWordColorClass(word, i)}`}
+                                    >
+                                        {word}
+                                    </span>
+                                ))}
+                            </div>
+                            
+                            <div className="flex items-center justify-center gap-4">
+                                {sentenceEval && (
+                                    <div className="text-center">
+                                        <div className={`text-2xl font-bold ${sentenceEval.score >= 80 ? 'text-emerald-400' : (sentenceEval.score < 70 ? 'text-amber-400' : 'text-slate-200')}`}>{sentenceEval.score}</div>
+                                        <div className="text-[10px] text-slate-500 uppercase">得分</div>
+                                    </div>
+                                )}
+                                <button 
+                                    onClick={handleToggleSentenceRecording}
+                                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isRecordingSentence ? 'bg-rose-500 animate-pulse text-white' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
+                                >
+                                    {isRecordingSentence ? <Square size={16} fill="currentColor" /> : <Mic size={20} />}
+                                </button>
+                                {sentenceEval && (
+                                    <div className="text-xs text-slate-400 max-w-[120px] text-left leading-tight pl-2 border-l border-white/10">
+                                        {sentenceEval.feedback}
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         <p className="text-slate-400 text-sm leading-relaxed mb-6 bg-black/20 p-4 rounded-2xl border border-white/5 font-light">

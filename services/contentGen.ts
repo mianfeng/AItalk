@@ -307,7 +307,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   const prompt = `Task: Create fill-in-the-blank English exercises for language learners.
   Data groups: ${JSON.stringify(wordGroups)}.
   
-  For each group, create ONE sentence that uses all 3 target words. Each sentence make logical sense and reflect how a native speaker would actually talk. Max 20 words.
+  For each group, create ONE sentence that uses all 3 target words. Each sentence make logical sense and reflect how a native speaker would actually talk. Max 17 words.
   
   Requirement:
   - "quizQuestion": The sentence with "____" replacing the target words. Must have exactly 3 "____".
@@ -436,4 +436,61 @@ export async function evaluatePronunciation(audioBase64: string, targetText: str
   } catch (e) {
     return { score: 0, feedback: "Evaluation failed" };
   }
+}
+
+export interface SentencePronunciationResult {
+    score: number;
+    feedback: string;
+    words: { word: string; score: number }[];
+}
+
+/**
+ * Evaluates pronunciation accuracy of a full sentence, breaking it down by word.
+ */
+export async function evaluateSentencePronunciation(audioBase64: string, targetText: string): Promise<SentencePronunciationResult> {
+    const ai = getGeminiClient();
+    if (!ai) return { score: 0, feedback: "API Key Missing", words: [] };
+    
+    const response = await ai.models.generateContent({
+      model: GENERAL_MODEL_NAME,
+      contents: [
+        { text: `Analyze the user's pronunciation of this sentence: "${targetText}".
+        Return a JSON object with:
+        - score: Overall score (0-100).
+        - feedback: Concise Chinese feedback on flow, intonation, and pronunciation.
+        - words: An array of objects for EVERY word in the sentence, each containing:
+            - word: The word string.
+            - score: Pronunciation score for that specific word (0-100).
+        Make sure the 'words' array matches the original sentence word order.` }, 
+        { inlineData: { mimeType: "audio/webm", data: audioBase64 } }
+      ],
+      config: { 
+          responseMimeType: "application/json",
+          responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                  score: { type: Type.NUMBER },
+                  feedback: { type: Type.STRING },
+                  words: {
+                      type: Type.ARRAY,
+                      items: {
+                          type: Type.OBJECT,
+                          properties: {
+                              word: { type: Type.STRING },
+                              score: { type: Type.NUMBER }
+                          }
+                      }
+                  }
+              },
+              required: ["score", "feedback", "words"]
+          } 
+      }
+    });
+    
+    try {
+      return JSON.parse(response.text || "");
+    } catch (e) {
+      console.error("Sentence eval error", e);
+      return { score: 0, feedback: "Evaluation failed", words: [] };
+    }
 }
