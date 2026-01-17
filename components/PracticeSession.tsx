@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import { PracticeExercise, VocabularyItem } from '../types';
-import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge, Sparkles, X, Mic, Square } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, Volume2, Loader2, Trophy, Headphones, BarChart, Gauge, Sparkles, X, Mic, Square, RotateCcw, Repeat } from 'lucide-react';
 import { sanitizeForTTS } from '../services/audioUtils';
 import { useSpeech } from '../hooks/useSpeech';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -59,7 +59,7 @@ const CardProgressBorder: React.FC<{ progress: number; children: React.ReactNode
     return (
         <div className="relative w-full" ref={containerRef}>
             {/* The actual content card */}
-            <div className="relative z-10 h-full w-full">
+            <div className="relative z-10 w-full">
                 {children}
             </div>
 
@@ -197,9 +197,11 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
   const [playingWord, setPlayingWord] = useState<string | null>(null);
+  const [isFlipped, setIsFlipped] = useState(false);
   
   // Sentence Practice State
   const [isRecordingSentence, setIsRecordingSentence] = useState(false);
+  const [isProcessingSentence, setIsProcessingSentence] = useState(false);
   const [sentenceEval, setSentenceEval] = useState<SentencePronunciationResult | null>(null);
   const [practiceWord, setPracticeWord] = useState<string | null>(null); // To trigger modal
 
@@ -234,6 +236,7 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         setUserAnswers(new Array((currentExercise.correctAnswers || []).length).fill(null)); 
         setIsCorrect(null);
         setShowExplanation(false);
+        setIsFlipped(false);
         setSentenceEval(null); // Reset sentence eval
     }
     
@@ -323,8 +326,11 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
   };
 
   const handleToggleSentenceRecording = async () => {
+    if (isProcessingSentence) return;
+    
     if (isRecordingSentence) {
         setIsRecordingSentence(false);
+        setIsProcessingSentence(true);
         try {
             const audio = await stopRecording();
             const result = await evaluateSentencePronunciation(audio, currentExercise.sentence);
@@ -332,6 +338,8 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
         } catch (e) {
             console.error(e);
             alert("评分失败");
+        } finally {
+            setIsProcessingSentence(false);
         }
     } else {
         setSentenceEval(null);
@@ -342,16 +350,13 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
   // Helper to color words based on sentence evaluation
   const getWordColorClass = (word: string, index: number) => {
-      if (!sentenceEval || !sentenceEval.words) return 'text-slate-300';
-      // Try to find matching word by index or content. 
-      // API might return different tokenization, so simple matching by index is risky but often works for simple sentences.
-      // We will try to map loosely.
+      if (!sentenceEval || !sentenceEval.words) return 'text-slate-200';
       const evalWord = sentenceEval.words[index];
       if (evalWord) {
           if (evalWord.score >= 80) return 'text-emerald-400';
-          if (evalWord.score < 70) return 'text-amber-400'; // Yellow/Amber
+          if (evalWord.score < 70) return 'text-amber-400';
       }
-      return 'text-slate-300';
+      return 'text-slate-200';
   };
 
   const renderSentenceWithSlots = () => {
@@ -457,21 +462,105 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
 
         <div className="flex-1 flex flex-col gap-6">
             
-            {/* Main Card with Progress Border */}
-            <CardProgressBorder progress={progressValue}>
-                <div className="glass rounded-[2rem] p-8 shadow-2xl flex flex-col items-center justify-center min-h-[280px] relative overflow-hidden bg-slate-900/40 backdrop-blur-xl">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500/10 to-transparent"></div>
-                    <div className="text-center mb-8 relative z-10 w-full">{renderSentenceWithSlots()}</div>
-                    <div className="px-5 py-2 bg-black/20 rounded-xl border border-white/5 text-slate-400 text-sm leading-relaxed text-center backdrop-blur-sm max-w-full">
-                    {currentExercise?.sentenceZh}
-                    </div>
-                    {showExplanation && (
-                        <div className="absolute top-6 right-6 animate-in zoom-in duration-300 drop-shadow-lg">
-                            {isCorrect ? <CheckCircle2 size={40} className="text-emerald-500" /> : <XCircle size={40} className="text-rose-500" />}
+            {/* Main Card with Progress Border & Flip - Grid layout for auto sizing */}
+            <div className="perspective-1000 w-full relative">
+                <CardProgressBorder progress={progressValue}>
+                    <div className={`w-full transition-transform duration-500 transform-style-3d grid grid-cols-1 ${isFlipped ? 'rotate-y-180' : ''}`}>
+                        
+                        {/* Front Side: Fill-in-the-blank */}
+                        <div 
+                            className="col-start-1 row-start-1 backface-hidden glass rounded-[2rem] p-8 shadow-2xl flex flex-col items-center justify-center relative overflow-hidden bg-slate-900/40 backdrop-blur-xl min-h-[300px]"
+                            onClick={() => showExplanation && setIsFlipped(true)}
+                            style={{ transform: "rotateY(0deg)" }}
+                        >
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500/10 to-transparent"></div>
+                            <div className="text-center mb-8 relative z-10 w-full">{renderSentenceWithSlots()}</div>
+                            <div className="px-5 py-2 bg-black/20 rounded-xl border border-white/5 text-slate-400 text-sm leading-relaxed text-center backdrop-blur-sm max-w-full">
+                            {currentExercise?.sentenceZh}
+                            </div>
+                            
+                            {showExplanation && (
+                                <>
+                                    <div className="absolute top-6 right-6 animate-in zoom-in duration-300 drop-shadow-lg">
+                                        {isCorrect ? <CheckCircle2 size={40} className="text-emerald-500" /> : <XCircle size={40} className="text-rose-500" />}
+                                    </div>
+                                    <div className="absolute bottom-4 flex items-center gap-1.5 text-xs text-indigo-400 font-medium animate-pulse cursor-pointer">
+                                        <Repeat size={12} />
+                                        <span>点击翻转跟读</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
-                    )}
-                </div>
-            </CardProgressBorder>
+
+                        {/* Back Side: Shadowing Practice */}
+                        <div 
+                            className="col-start-1 row-start-1 backface-hidden rotate-y-180 bg-slate-900 rounded-[2rem] p-6 shadow-2xl flex flex-col relative overflow-hidden border border-white/10 min-h-[300px]"
+                            style={{ transform: "rotateY(180deg)" }}
+                        >
+                             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
+                             
+                             <div className="flex justify-between items-center w-full mb-6 relative z-10">
+                                <div className="text-[10px] text-indigo-400 uppercase tracking-widest font-bold flex items-center gap-2">
+                                    <Mic size={12} /> Oral Practice
+                                </div>
+                                <button onClick={() => setIsFlipped(false)} className="p-2 -mr-2 text-slate-500 hover:text-white transition-colors">
+                                    <RotateCcw size={16} />
+                                </button>
+                             </div>
+                             
+                             <div className="flex-1 flex flex-col justify-center items-center gap-8 relative z-10 w-full">
+                                <div className="flex flex-wrap gap-x-1.5 gap-y-3 justify-center content-center text-center">
+                                    {currentExercise.sentence.split(' ').map((word, i) => (
+                                        <span 
+                                            key={i} 
+                                            onClick={(e) => { e.stopPropagation(); setPracticeWord(word.replace(/[^a-zA-Z]/g, '')); }}
+                                            className={`text-xl md:text-2xl font-medium cursor-pointer hover:underline decoration-white/20 transition-all active:scale-95 ${getWordColorClass(word, i)}`}
+                                        >
+                                            {word}
+                                        </span>
+                                    ))}
+                                </div>
+
+                                <div className="flex flex-col items-center gap-4 w-full mt-auto">
+                                    <div className="flex items-center gap-6">
+                                        {sentenceEval && (
+                                            <div className="flex flex-col items-center animate-in zoom-in">
+                                                <div className={`text-2xl font-bold ${sentenceEval.score >= 80 ? 'text-emerald-400' : (sentenceEval.score < 70 ? 'text-amber-400' : 'text-slate-200')}`}>{sentenceEval.score}</div>
+                                                <div className="text-[8px] text-slate-600 uppercase tracking-wider">Score</div>
+                                            </div>
+                                        )}
+
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleToggleSentenceRecording(); }}
+                                            disabled={isProcessingSentence}
+                                            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg ${
+                                                isProcessingSentence ? 'bg-slate-800 text-slate-500' : 
+                                                (isRecordingSentence ? 'bg-rose-500 animate-pulse text-white shadow-rose-500/30' : 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-indigo-500/30 hover:scale-105 active:scale-95')
+                                            }`}
+                                        >
+                                            {isProcessingSentence ? <Loader2 size={24} className="animate-spin" /> : 
+                                            (isRecordingSentence ? <Square size={20} fill="currentColor" /> : <Mic size={28} />)}
+                                        </button>
+                                        
+                                        <button onClick={(e) => { e.stopPropagation(); playTTS(currentExercise?.sentence, true); }} className={`p-3 rounded-full transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
+                                            {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
+                                        </button>
+                                    </div>
+                                    
+                                    {sentenceEval ? (
+                                         <div className="text-xs text-slate-400 text-center bg-black/20 px-3 py-2 rounded-lg max-w-[90%] border border-white/5 animate-in slide-in-from-bottom-2">
+                                            {sentenceEval.feedback}
+                                        </div>
+                                    ) : (
+                                        <p className="text-[10px] text-slate-600 animate-pulse">点击单词可单独练习</p>
+                                    )}
+                                </div>
+                             </div>
+                        </div>
+
+                    </div>
+                </CardProgressBorder>
+            </div>
 
             {showExplanation ? (
                 <div className="flex flex-col gap-4 animate-in slide-in-from-bottom-4">
@@ -481,28 +570,23 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                                 <Sparkles size={16} className="text-indigo-400" />
                                 <span className="text-xs font-bold text-indigo-300 uppercase tracking-widest">详解回顾</span>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <button 
-                                    onClick={toggleSpeed}
-                                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-[10px] font-mono font-bold text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
-                                    title="调整语速"
-                                >
-                                    <Gauge size={12} /> {speechRate.toFixed(1)}x
-                                </button>
-                                <button onClick={() => playTTS(currentExercise?.sentence, true)} className={`p-2 rounded-xl transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-indigo-400 hover:bg-slate-700 hover:text-white'}`}>
-                                   {isPlaying ? <Loader2 className="animate-spin" size={18} /> : <Headphones size={18} />}
-                                </button>
-                            </div>
+                            <button 
+                                onClick={toggleSpeed}
+                                className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/5 text-[10px] font-mono font-bold text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+                                title="调整语速"
+                            >
+                                <Gauge size={12} /> {speechRate.toFixed(1)}x
+                            </button>
                         </div>
                         
                         {/* Word Cards Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6">
+                        <div className="grid grid-cols-3 gap-2 mb-6">
                             {currentExercise?.targetWords?.map((word, idx) => {
                                 const stats = vocabMap.get(word.toLowerCase()) || { level: 0, pronunciation: "" };
                                 const pronunciation = currentExercise.targetWordPronunciations?.[idx] || stats.pronunciation;
                                 
                                 return (
-                                    <button key={idx} onClick={() => setPracticeWord(word)} className={`px-3 py-3 rounded-xl border text-xs font-medium flex flex-col items-center justify-center transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg' : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}>
+                                    <button key={idx} onClick={() => playTTS(word)} className={`px-3 py-3 rounded-xl border text-xs font-medium flex flex-col items-center justify-center transition-all ${playingWord === word ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg' : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}>
                                         <div className="flex items-center justify-between w-full mb-1 opacity-70">
                                             <div className="flex items-center gap-1 scale-90 origin-left">
                                                 <BarChart size={10} />
@@ -517,45 +601,6 @@ export const PracticeSession: React.FC<PracticeSessionProps> = ({ exercises, onC
                                     </button>
                                 );
                             })}
-                        </div>
-                        
-                        {/* Sentence Shadowing Section */}
-                        <div className="mb-6 bg-black/20 rounded-2xl border border-white/5 p-4">
-                            <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-3 font-bold flex items-center gap-2">
-                                <Mic size={12} className="text-amber-400" /> 句子跟读
-                            </div>
-                            
-                            <div className="flex flex-wrap gap-1.5 mb-4 justify-center">
-                                {currentExercise.sentence.split(' ').map((word, i) => (
-                                    <span 
-                                        key={i} 
-                                        onClick={() => setPracticeWord(word.replace(/[^a-zA-Z]/g, ''))}
-                                        className={`text-lg font-medium cursor-pointer hover:underline decoration-white/20 transition-colors ${getWordColorClass(word, i)}`}
-                                    >
-                                        {word}
-                                    </span>
-                                ))}
-                            </div>
-                            
-                            <div className="flex items-center justify-center gap-4">
-                                {sentenceEval && (
-                                    <div className="text-center">
-                                        <div className={`text-2xl font-bold ${sentenceEval.score >= 80 ? 'text-emerald-400' : (sentenceEval.score < 70 ? 'text-amber-400' : 'text-slate-200')}`}>{sentenceEval.score}</div>
-                                        <div className="text-[10px] text-slate-500 uppercase">得分</div>
-                                    </div>
-                                )}
-                                <button 
-                                    onClick={handleToggleSentenceRecording}
-                                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isRecordingSentence ? 'bg-rose-500 animate-pulse text-white' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}
-                                >
-                                    {isRecordingSentence ? <Square size={16} fill="currentColor" /> : <Mic size={20} />}
-                                </button>
-                                {sentenceEval && (
-                                    <div className="text-xs text-slate-400 max-w-[120px] text-left leading-tight pl-2 border-l border-white/10">
-                                        {sentenceEval.feedback}
-                                    </div>
-                                )}
-                            </div>
                         </div>
 
                         <p className="text-slate-400 text-sm leading-relaxed mb-6 bg-black/20 p-4 rounded-2xl border border-white/5 font-light">
