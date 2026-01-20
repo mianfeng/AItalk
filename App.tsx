@@ -24,15 +24,35 @@ const fastClean = (text: string) => {
 
 const getNextReviewInterval = (level: number): number => {
   const ONE_DAY = 24 * 60 * 60 * 1000;
+  let days = 1;
+
+  // Helper to get random integer between min and max (inclusive)
+  const randomDays = (min: number, max: number) => {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+  };
+
   switch (level) {
-    case 0: return ONE_DAY;
-    case 1: return ONE_DAY;
-    case 2: return 3 * ONE_DAY;
-    case 3: return 7 * ONE_DAY;
-    case 4: return 14 * ONE_DAY;
-    case 5: return 30 * ONE_DAY;
-    default: return ONE_DAY;
+    case 0: 
+    case 1: 
+        days = 1; // 短期记忆关键期，固定1天
+        break;
+    case 2: 
+        days = randomDays(2, 4); // 随机 2~4 天 (原固定3天)
+        break;
+    case 3: 
+        days = randomDays(5, 9); // 随机 5~9 天 (原固定7天)
+        break;
+    case 4: 
+        days = randomDays(11, 17); // 随机 11~17 天 (原固定14天)
+        break;
+    case 5: 
+        days = 30; // 长效记忆，固定30天
+        break;
+    default: 
+        days = 1;
   }
+  
+  return days * ONE_DAY;
 };
 
 const ActivityChart: React.FC<{ history: StatsHistory }> = ({ history }) => {
@@ -208,7 +228,7 @@ const AddWordModal: React.FC<{
                         <textarea 
                             value={input}
                             onChange={e => setInput(e.target.value)}
-                            placeholder="输入你在生活中遇到的英语表达..."
+                            placeholder="输入英语单词或短语..."
                             className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none text-lg"
                             autoFocus
                         />
