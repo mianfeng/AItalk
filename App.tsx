@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { VocabularyItem, StudyItem, DailyStats, SessionResult, ConversationSession, PracticeExercise, StatsHistory } from './types';
 import { generateDailyContent, generateInitialTopic, generateTopicFromVocab, generatePracticeExercises, generateStudyItem } from './services/contentGen';
@@ -18,8 +17,13 @@ const STATS_HISTORY_KEY = 'lingua_stats_history';
 const fastClean = (text: string) => {
     if (!text) return "";
     return text.trim().toLowerCase()
-        .replace(/\s+[A-Z]\s+.*$/i, '') 
-        .replace(/\s+[a-z]$/, '');
+        // Replace ellipses and dots with space to handle "run...into" vs "run into"
+        .replace(/[…\.]+/g, ' ') 
+        .replace(/[\u2018\u2019\u201B\u2032\u2035]/g, "'") // Normalize quotes
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .replace(/\s+[A-Z]\s+.*$/i, '') // Remove trailing metadata like " S verb"
+        .replace(/\s+[a-z]$/, '') // Remove single char suffixes
+        .trim();
 };
 
 const getNextReviewInterval = (level: number): number => {
@@ -448,6 +452,7 @@ const App: React.FC = () => {
             let isCorrect = false;
 
             for (const [resWord, correct] of resultMap.entries()) {
+                // Improved matching: exact match or containment for phrases
                 if (resWord === itemClean || (itemClean.length > 3 && resWord.includes(itemClean)) || (resWord.length > 3 && itemClean.includes(resWord))) {
                     isMatched = true;
                     isCorrect = correct;

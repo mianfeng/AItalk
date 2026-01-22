@@ -1,18 +1,19 @@
-
 import { StudyItem, ItemType } from "../types";
 import { RAW_SLANG_DATA } from "./data/slangData";
 import { RAW_ACADEMIC_DATA } from "./data/academicData";
 
 /**
  * 强大的文本清洗工具：剔除单词末尾可能的字母后缀或重复标记
+ * 同时处理短语中的省略号，使其与用户输入或AI生成的标准文本兼容
  * 例如："K-drama k" -> "K-drama"
- *      "scale a business S scale" -> "scale a business"
+ *      "run…into the ground" -> "run into the ground"
  */
 function cleanText(text: string): string {
   if (!text) return "";
-  // 匹配模式：空格 + 单个大写/小写字母 (+ 可能重复的部分)
-  // 或者 匹配一些常见的噪音模式
   return text
+    // Replace ellipses and dots with space to handle "run...into" vs "run into"
+    .replace(/[…\.]+/g, ' ') 
+    .replace(/\s+/g, ' ')    // Collapse multiple spaces
     .replace(/\s+[A-Z]\s+.*$/i, '') // 匹配 " S scale" 这种模式
     .replace(/\s+[a-z]$/, '')       // 匹配 " k" 这种模式
     .trim();
