@@ -314,7 +314,7 @@ async function generatePracticeExercisesWithGemini(items: StudyItem[]): Promise<
   - "correctAnswers": The 3 correct words filling the blanks, in order.
   - "targetWords": The 3 original target words (base forms) corresponding to the blanks, in the SAME ORDER as correctAnswers.
   - "targetWordPronunciations": Standard IPA symbols for the 3 target words.
-  - "options": The 3 correct words plus 1-2 distractors (total 4-5 individual strings).
+  - "options": The 3 correct words plus 1 distractors (total 4 individual strings).
   - "sentenceZh": Natural Chinese translation.
   - "explanation": A helpful teaching explanation in CHINESE,  Focus on collocations and why synonyms don't fit.`;
 
